@@ -7,6 +7,7 @@ Type:       Standards Track
 Status:     Draft
 Authors:    Jaron Rosenau <@denuoweb>
 Created:    2026-07-19
+Updated:    2026-07-20
 Requires:   Handshake P2P DNS Relay (draft HIP)
 Related:    Handshake P2P Rendezvous and Authenticated Service Relay (draft HIP, optional)
 ```
@@ -390,6 +391,18 @@ The base target role also requires `NODE_DNS_RELAY` from the base HIP.
 Prototype implementations MUST use private experimental assignments on
 controlled networks. They MUST NOT advertise those values as this standard on
 mainnet until maintainers assign permanent values.
+
+The accompanying regtest-only `hsd` proof of concept uses:
+
+| Symbol | Private PoC value |
+| --- | ---: |
+| `EXPERIMENTAL_ODOH_SERVICE` | `0x20000000` |
+| `EXPERIMENTAL_ODOH` | `0xf2` |
+
+These are collision-prone implementation values, not requested registry
+assignments. The PoC refuses to enable proxy or target roles outside regtest.
+Future experiments MUST negotiate different private values or establish that
+these values remain unused; assigned implementations MUST replace them.
 
 One packet type is used because a versioned internal opcode separates
 capability, configuration, query, response, cancellation, and error messages.
@@ -2025,6 +2038,203 @@ The proxy component MUST not expose generic socket forwarding.
 The target SHOULD reuse the base HIP resolver implementation rather than
 maintain a second divergent DNS-validation path.
 
+## Complete reference implementation and regtest evidence
+
+The JavaScript `hsd` reference implementation is maintained on
+[`denuoweb/hsd:feat/p2p-oblivious-dns-relay`](https://github.com/denuoweb/hsd/tree/feat/p2p-oblivious-dns-relay)
+at commit `909311d97c794eb59ed2eb0b095a122607ae078e`. It is based directly
+on the prerequisite base relay implementation at commit
+`ea31be1554f3235bfa96bdd394e6d33e7dda8080` and is proposed as the stacked
+draft [handshake-org/hsd#959](https://github.com/handshake-org/hsd/pull/959).
+
+The independent Rust requester and composed browser acceptance tier are
+maintained on
+[`Denuo-Web/hns-dane-browser:feat/p2p-oblivious-dns-relay`](https://github.com/Denuo-Web/hns-dane-browser/tree/feat/p2p-oblivious-dns-relay)
+at commit `477c4e8092a062a69f56bf348b382b6f4face898`. Together these
+implementations complete the mandatory
+direct-locator reference profile.
+
+The implementation is kept with this draft at immutable commit links:
+
+- [`lib/net/odoh.js`](https://github.com/denuoweb/hsd/blob/909311d97c794eb59ed2eb0b095a122607ae078e/lib/net/odoh.js), containing strict body codecs,
+  signed target configurations, RFC 9230 processing, proxy mappings, target
+  replay handling, and requester helpers;
+- [`lib/net/packets.js`](https://github.com/denuoweb/hsd/blob/909311d97c794eb59ed2eb0b095a122607ae078e/lib/net/packets.js), containing the version-1
+  `ODNS` envelope;
+- [`lib/net/pool.js`](https://github.com/denuoweb/hsd/blob/909311d97c794eb59ed2eb0b095a122607ae078e/lib/net/pool.js) and
+  [`lib/node/fullnode.js`](https://github.com/denuoweb/hsd/blob/909311d97c794eb59ed2eb0b095a122607ae078e/lib/node/fullnode.js), containing dynamic
+  service negotiation, packet dispatch, role configuration, and lifecycle
+  integration;
+- [`test/odoh-test.js`](https://github.com/denuoweb/hsd/blob/909311d97c794eb59ed2eb0b095a122607ae078e/test/odoh-test.js), containing codec,
+  cryptographic, signature, rotation/overlap, privacy-split, mapping, replay,
+  and deterministic-vector tests;
+- [`test/data/odoh-v1-vectors.json`](https://github.com/denuoweb/hsd/blob/909311d97c794eb59ed2eb0b095a122607ae078e/test/data/odoh-v1-vectors.json),
+  containing shared locator, RFC 9230 encoding/KDF, and signed-target-record
+  vectors verified by JavaScript and Rust;
+- [`scripts/run-odoh-regtest-trial.js`](https://github.com/denuoweb/hsd/blob/909311d97c794eb59ed2eb0b095a122607ae078e/scripts/run-odoh-regtest-trial.js),
+  containing the reproducible three-FullNode trial;
+- [`docs/experimental-odoh.md`](https://github.com/denuoweb/hsd/blob/909311d97c794eb59ed2eb0b095a122607ae078e/docs/experimental-odoh.md), containing
+  the implementation runbook and explicit claim boundary.
+
+The browser-side reference is in
+[`rust/crates/hns-p2p/src/odoh.rs`](https://github.com/Denuo-Web/hns-dane-browser/blob/477c4e8092a062a69f56bf348b382b6f4face898/rust/crates/hns-p2p/src/odoh.rs),
+with resolver integration in
+[`rust/crates/hns-browser-runtime`](https://github.com/Denuo-Web/hns-dane-browser/tree/477c4e8092a062a69f56bf348b382b6f4face898/rust/crates/hns-browser-runtime),
+platform security path mappings for Android and iOS, and the reproducible full
+topology in
+[`scripts/test-experimental-p2p-dns-relay-full.sh`](https://github.com/Denuo-Web/hns-dane-browser/blob/477c4e8092a062a69f56bf348b382b6f4face898/scripts/test-experimental-p2p-dns-relay-full.sh).
+
+The cryptographic implementation uses the maintained `@hpke/core` and
+`@hpke/dhkem-x25519` packages for RFC 9180 HPKE. The P2P-specific code performs
+RFC 9230 message encoding, key-ID derivation, response-secret derivation, and
+target-record signing around that library. It does not implement an ad hoc
+public-key encryption construction.
+
+### Implemented direct-locator profile
+
+The current branch implements:
+
+- all version-1 opcodes and strict envelope/body length checks;
+- proxy and target capability negotiation;
+- requester-selected direct Brontide target locators;
+- low-S strict-DER secp256k1-signed target records;
+- the mandatory RFC 9230 cipher suite;
+- independent cryptographically random hop-local request IDs;
+- bounded per-connection and global requester/proxy state;
+- target deadlines, cancellation, disconnect cleanup, and replay detection;
+- automatic 22-hour target HPKE key rotation, a two-hour old-key/record
+  overlap, monotonically increasing sequences, and retired-key wiping;
+- generic target failure mapping without an HPKE or DNS parsing oracle;
+- target handoff to the existing base-HIP `DNSRelayService` after decryption;
+- requester-side decrypted-response structure, recursion flag, DNS ID, and
+  question correlation checks;
+- an explicit regtest-only private/loopback target exception;
+- selection only of an already-connected outbound Brontide peer whose numeric
+  address, port, authenticated peer key, service bits, and `TARGET` capability
+  match the locator;
+- an independent Rust requester using X25519/HKDF-SHA256/AES-128-GCM and the
+  same strict target-record and DNS-correlation checks; and
+- browser-runtime provenance and security paths that remain beneath local
+  Urkel, DNSSEC, HTTPS/SVCB, TLSA, and DANE validation.
+
+The reference proxy deliberately forwards only to a preconnected,
+authenticated target that exactly matches the requester-selected locator. It
+never becomes a generic socket forwarder. HNSR locators, on-demand target
+connection establishment, config caching, persistent target keys, multi-target
+scheduling, outer bucket padding, and production telemetry are optional
+extensions outside the mandatory direct-locator profile; their absence does
+not reduce direct-locator conformance.
+
+### Trial command and topology
+
+From the `hsd` feature branch:
+
+```sh
+npm ci
+node scripts/run-odoh-regtest-trial.js ../artifacts/regtest-trial.json
+```
+
+The successful 2026-07-20 trial created three actual `hsd` FullNodes with
+independent persistent test identities and disposable prefixes:
+
+```text
+Requester == authenticated Brontide ==> Proxy
+                                      == authenticated Brontide ==> Target
+```
+
+The requester observed the proxy role, retrieved the target's signed
+configuration through the proxy, verified its signature, network, lifetime,
+record ID, and exact locator, encrypted a `www.relaytest. A` query, and sent a
+`CLIENT_QUERY`. The proxy replaced the client request ID with an independent
+target request ID and sent a `TARGET_QUERY`. The target decrypted the query,
+passed it through the prerequisite base relay's complete wire-query parser,
+active-name admission hook, resource scheduler, and backend interface,
+encrypted the returned DNS response, and returned it through the proxy.
+
+The trial asserted and recorded:
+
+| Observation | Result |
+| --- | --- |
+| Target advertised both private ODoH and base-relay service bits | Pass |
+| Target configuration signature and locator verified | Pass |
+| Target sequence increased across forced rotation | `1` to `2` |
+| Current configuration advertised old/new overlap | `2` configurations |
+| Previous signed record accepted during overlap | Pass |
+| Raw query bytes absent from proxy-observed ODoH ciphertext | Pass |
+| Proxy plaintext byte counter | `0` |
+| Target received the exact admitted raw DNS query | Pass |
+| Client and target request IDs were different | Pass |
+| Base relay accepted/succeeded exactly once | Pass |
+| Requester decrypted the expected correlated response | Pass |
+| Proxy mappings after completion | `0` client, `0` target |
+
+The runner writes machine-readable evidence to `artifacts/regtest-trial.json`
+when invoked from the shared workspace. Target identity, HPKE key, request IDs,
+configuration ID, response nonce, and ciphertext are fresh per run. Stable
+interoperability inputs are instead published in the linked
+`test/data/odoh-v1-vectors.json` and verified by both reference
+implementations.
+
+### Composed browser trial
+
+The focused three-node run isolates framing, cryptography, privacy views, and
+rotation. The companion browser repository supplies the composed acceptance
+tier and runs an independent native Rust requester against four actual patched
+`hsd` FullNodes with independent prefixes and identities.
+
+The successful 2026-07-20 run:
+
+1. mined the complete `relaytest` name lifecycle to regtest height 91;
+2. required all four nodes to converge on the same chain and Urkel tree root;
+3. verified a current `TYPE_EXISTS` proof and the registered NS/GLUE4/DS
+   resource;
+4. used `hsd-relay-bad` as the requester-facing ODoH proxy and the distinct
+   Brontide listener on `hsd-owner-good` as the authenticated target;
+5. prevented the browser namespace from reaching authoritative or external
+   UDP/TCP port 53;
+6. recursively resolved the live signed child zone through ODoH;
+7. validated DS/DNSKEY/RRSIG, TLSA, and DANE locally in the browser runtime;
+8. fetched `https://www.relaytest:18443/` with status 200; and
+9. observed zero contacts to the configured legacy DoH sentinel.
+
+The runner writes its machine-readable result to
+`artifacts/browser-odoh-full-tier/full-tier-result.json` in the shared
+workspace. It records `urkelProof: verified`, `resolutionSource: p2p_odoh`,
+`odoh.verified: true`, `dnssec: secure`, `dane: verified`, status 200, distinct
+proxy/target sockets, and `legacyDohContact: false`. The adjacent proof,
+network-isolation, authority, origin, and sentinel artifacts are checked by the
+runner before it reports success.
+
+The complete reference claim is the combination of these two trials. It covers
+the mandatory direct-locator profile and inherited base-HIP validation path.
+Optional HNSR reachability, public canaries, anonymity-set measurement, and
+Android/iOS application-binary packaging are separate deployment exercises,
+not missing protocol behavior.
+
+### Verification record
+
+The reference implementations pass:
+
+```sh
+npx --yes eslint@9 \
+  lib/net/odoh.js lib/net/common.js lib/net/packets.js lib/net/parser.js \
+  lib/net/pool.js lib/node/fullnode.js lib/net/index.js \
+  test/odoh-test.js scripts/run-odoh-regtest-trial.js
+
+npm run test-file -- \
+  test/odoh-test.js test/dns-relay-test.js test/net-test.js
+```
+
+The focused suite covers canonical envelope and opcode bodies, malformed
+envelopes, target-locator restrictions, all-zero plaintext padding, signed
+record validation, wrong HPKE keys, encrypted query/response round trips,
+decrypted DNS response correlation, three-role forwarding, independent IDs,
+exact ciphertext replay rejection, and the prerequisite base-relay and network
+packet regression suites. The focused hsd command reports 102 passing tests.
+The Rust peer, browser, Android-bridge, and iOS-ABI suites report 206 passing
+tests; Android reports 192 passing Kotlin unit tests; strict Rust Clippy is
+clean; and the composed four-node runner reports success.
+
 ## Deployment plan
 
 ### Phase 1: cryptographic unit implementation
@@ -2035,6 +2245,11 @@ maintain a second divergent DNS-validation path.
 - key rotation;
 - test vectors;
 - malformed input handling.
+
+**Reference status (2026-07-20): complete.** The mandatory suite, target
+signatures, canonical encodings, wrong-key behavior, zero padding, malformed
+outer inputs, automatic rotation/overlap, retired-key wiping, and published
+JavaScript/Rust vectors are implemented and tested.
 
 ### Phase 2: isolated regtest
 
@@ -2054,7 +2269,14 @@ Verify:
 - local DNSSEC and DANE validation;
 - no legacy resolver contact.
 
-### Phase 3: multi-proxy and multi-target regtest
+**Reference status (2026-07-20): complete.** The focused three-FullNode run
+verifies the encrypted two-hop transport, privacy-view split, target
+authentication, rotation, and inherited base-relay admission/scheduling. The
+composed four-FullNode browser run verifies the registered name, live
+recursion, current Urkel proof, local DNSSEC and DANE, HTTPS, network isolation,
+and zero legacy-resolver contact.
+
+### Phase 3: optional multi-proxy and HNSR exercises
 
 - several proxies;
 - several targets;
@@ -2069,7 +2291,11 @@ Verify:
 - outbound-only target through HNSR `HNS_NODE_V1`;
 - HNSR route expiry and relay failover without HPKE configuration rotation.
 
-### Phase 4: bounded testnet
+These exercises measure optional deployment policies and the optional HNSR
+locator. They are not prerequisites for direct-locator implementation or
+conformance.
+
+### Phase 4: bounded testnet canary
 
 - private experimental service and packet values;
 - conservative rate limits;
@@ -2078,6 +2304,8 @@ Verify:
 - privacy correlation experiments;
 - no conformance claim before assignment.
 
+This phase is an operator deployment gate, not unfinished reference code.
+
 ### Phase 5: assigned mainnet deployment
 
 - permanent service bit and packet type;
@@ -2085,6 +2313,10 @@ Verify:
 - at least two independent implementations;
 - audited HPKE library integration;
 - explicit operator configuration.
+
+This phase begins only after the Handshake community assigns permanent values
+and accepts the HIP. Draft governance status is intentionally not represented
+as an implementation gap.
 
 ## Testing requirements
 
@@ -2463,3 +2695,8 @@ weaken the proxy/target separation.
 8. Handshake `hsd`, peer framing, service negotiation, and network addresses.
 9. Handshake `hnsd`, SPV name-proof retrieval.
 10. Draft HIP, *Handshake P2P Rendezvous and Authenticated Service Relay*.
+11. `@hpke/core` and `@hpke/dhkem-x25519`, RFC 9180 HPKE implementation used
+    by the regtest proof of concept.
+12. Denuo Web `hsd`, `feat/p2p-dns-relay` at
+    `ea31be1554f3235bfa96bdd394e6d33e7dda8080`, prerequisite responder
+    implementation.

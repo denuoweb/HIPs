@@ -7,6 +7,7 @@ Type:    Standards Track
 Status:  Draft
 Authors: Jaron Rosenau <@denuoweb>
 Created: 2026-07-19
+Updated: 2026-07-21
 Related:  Handshake P2P Transport for Oblivious DNS Relay (draft HIP, optional)
 ```
 
@@ -399,6 +400,19 @@ internal opcode.
 Experimental implementations MUST use private assignments on controlled
 networks and MUST NOT advertise them as this standard on public mainnet before
 maintainer assignment.
+
+The accompanying regtest-only `hsd` proof of concept uses:
+
+| Symbol | Private PoC value |
+| --- | ---: |
+| HNSR rendezvous service | `0x04000000` |
+| HNSR relay service | `0x08000000` |
+| HNSR packet type | `0xf3` |
+
+These values are collision-prone implementation values, not requested
+assignments. The reference branch throws if an operator attempts to enable an
+HNSR role outside regtest. A production implementation MUST replace them with
+assigned values and MUST NOT infer conformance from these numbers.
 
 ## Capability negotiation
 
@@ -1785,6 +1799,106 @@ relay-capable HNS peers
 Incoming node circuits become virtual peers. Incoming web circuits enter only
 the explicitly configured web handler.
 
+## Reference implementation and regtest evidence
+
+A bounded `hsd` proof of concept is available at:
+
+- draft implementation PR:
+  [handshake-org/hsd#960](https://github.com/handshake-org/hsd/pull/960);
+- exact implementation commit:
+  [`5c96cda1b61bbdae4008946e93d9362dd8f6eef5`](https://github.com/denuoweb/hsd/tree/5c96cda1b61bbdae4008946e93d9362dd8f6eef5);
+- branch documentation: `docs/experimental-hnsr.md`; and
+- reproducible runner: `scripts/run-hnsr-regtest-trial.js`.
+
+The reference branch implements the smallest coherent unnamed-node slice of
+this HIP:
+
+- the version-1 envelope and private regtest capability advertisement;
+- `RESERVE`, `OFFER`, `CONFIRM`, and `CONFIRMED`;
+- mutually signed relay tickets using strict-DER, low-S secp256k1 signatures;
+- self-authorized unnamed endpoint delegations and route records;
+- bounded, expiring, sequence-aware exact-key route storage;
+- `PUTROUTE`, `PUTRESULT`, `GETROUTE`, and `ROUTES`;
+- `OPEN`, `INCOMING`, `ACCEPT`, and `OPENED`;
+- opaque `DATA`, directional `WINDOW`, and `CLOSE`;
+- circuit-count, byte, frame, and directional-credit limits;
+- immediate local reservation invalidation on endpoint disconnect; and
+- a virtual stream carrying a complete end-to-end inner Brontide session.
+
+The branch deliberately does **not** yet implement:
+
+- iterative `FINDNODE` / `NODES` XOR routing;
+- eight-node route replication or diversity selection;
+- `SAMPLEROUTES`, `RENEW`, or `WITHDRAW` behavior;
+- named HNS authority, root-key TXT parsing, service authorizations, or
+  `HNS_WEB_V1`;
+- persistent route storage or routing buckets;
+- multi-relay selection, republishing, failover, or scoring;
+- public-network admission, netgroup, per-prefix, or abuse controls;
+- RPC, wallet, SPV, Android, hardware-signing, or browser-origin integration;
+  or
+- the production scheduler, telemetry, and load testing required by later
+  deployment phases.
+
+Direct storage at one rendezvous FullNode therefore demonstrates authenticated
+record publication and retrieval, not Kademlia conformance or data
+availability. Likewise, an inner `version` / `verack` and ping/pong exchange
+demonstrates an authenticated virtual peer session, not complete block,
+transaction, proof, or adversarial peer equivalence.
+
+### Reproduction
+
+From the exact `hsd` commit:
+
+```sh
+npm ci
+NODE_BACKEND=js npm run test-file -- \
+  test/hnsr-test.js test/brontide-test.js test/net-test.js
+NODE_BACKEND=js node scripts/run-hnsr-regtest-trial.js \
+  ../artifacts/hnsr-regtest-trial.json
+```
+
+`NODE_BACKEND=js` selects bcrypto's portable JavaScript backend and is not a
+wire-protocol requirement.
+
+The focused suites report 61 passing tests. They cover the envelope,
+truncation, reserved flags, zero context IDs, unknown versions and opcodes,
+reservation signature binding, ticket and route round trips, strict low-S
+rejection, route-key substitution, sequence replacement, expiration, role
+advertisement, the regtest gate, Brontide, and the existing network packet
+suite.
+
+The successful 2026-07-21 trial creates four actual `hsd` FullNodes with
+independent prefixes and identity keys:
+
+```text
+Endpoint (no listener) == outer Brontide ==> Relay
+Endpoint (no listener) == outer Brontide ==> Rendezvous
+Requester              == outer Brontide ==> Relay
+Requester              == outer Brontide ==> Rendezvous
+```
+
+It verifies:
+
+1. a mined regtest block propagates to height 1 on all four nodes;
+2. relay and endpoint ticket signatures validate;
+3. an authenticated unnamed route is stored and retrieved by its exact key;
+4. `HNS_NODE_V1` opens only to the live connection bound to the reservation;
+5. requester and endpoint complete a second end-to-end Brontide handshake;
+6. ordinary Handshake `version`, `verack`, `ping`, and `pong` packets cross the
+   inner session;
+7. both inner static peer identities match the expected requester and
+   endpoint keys;
+8. the relay forwards encrypted `DATA` while the plaintext ping nonce is absent
+   from every relay-visible payload; and
+9. after endpoint disconnect, the still-cached route remains retrievable but
+   its locally invalidated ticket is rejected.
+
+The runner writes fresh machine-readable evidence on every invocation,
+including identities, route key, ticket ID, circuit ID, opcode counts, byte
+counts, and a relay-transcript hash. Randomized DER signature lengths and fresh
+cryptographic values mean exact artifact bytes are intentionally not stable.
+
 ## Deployment
 
 ### Phase 1: regtest
@@ -1801,6 +1915,14 @@ the explicitly configured web handler.
 - forced endpoint disconnection;
 - stale route handling;
 - strict load and scheduling tests.
+
+**Reference status (2026-07-21): partial.** The implemented unnamed-node slice
+covers one endpoint, one relay, one rendezvous node, one requester, authenticated
+outer and inner Brontide, ordinary inner Handshake packets, endpoint
+disconnection, and stale-route rejection. The second relay, four-node
+rendezvous replication, iterative XOR lookup, named web route, HTTP path,
+strict load tier, and production scheduler remain required before Phase 1 is
+complete.
 
 ### Phase 2: testnet
 
@@ -2108,3 +2230,5 @@ phone serves hnsr://denuoweb/p2p-site/
 7. Draft HIP, *Handshake P2P DNS Relay*.
 8. Kademlia, Maymounkov and Mazières, 2002, for XOR-keyed routing concepts.
 9. Draft HIP, *Handshake P2P Transport for Oblivious DNS Relay*.
+10. `hsd` proof of concept, `handshake-org/hsd#960`, exact commit
+    `5c96cda1b61bbdae4008946e93d9362dd8f6eef5`.

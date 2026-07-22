@@ -610,8 +610,18 @@ EndpointDelegationV1 {
 }
 ```
 
-The delegation is signed under `service_key` with domain
-`HNSR-ENDPOINT-DELEGATION-V1\0`.
+The delegation signature digest is:
+
+```text
+BLAKE2b-256(
+    "HNSR-ENDPOINT-DELEGATION-V1\0"
+    || network_magic_u32le
+    || all unsigned canonical fields
+)
+```
+
+It is signed under `service_key`. For an unnamed self-delegation it is signed
+under `endpoint_key`.
 
 Rules:
 
@@ -881,7 +891,20 @@ SampleRoutesV1 {
 ```
 
 A rendezvous node MUST return at most 16 records, sampled from bounded local
-storage. It MUST NOT initiate recursive queries to answer.
+storage. It MUST NOT initiate recursive queries to answer. To make a response
+reproducible without maintaining per-request state, eligible canonical records
+are ordered by the unsigned byte value of:
+
+```text
+BLAKE2b-256(
+    "HNSR-SAMPLE-ROUTES-V1\0"
+    || random_seed
+    || canonical_route_record
+)
+```
+
+The node returns the first `maximum_records` entries after applying expiration
+and local admission policy.
 
 ## Route record
 
@@ -946,8 +969,20 @@ ReserveV1 {
 }
 ```
 
-The signature binds the request to the relay key, context ID, network magic,
-and all fields.
+The signature digest is:
+
+```text
+BLAKE2b-256(
+    "HNSR-RESERVE-V1\0"
+    || network_magic_u32le
+    || relay_key
+    || context_id_u64le
+    || all unsigned canonical ReserveV1 fields
+)
+```
+
+This binds the request to the relay key, context ID, network magic, and all
+fields.
 
 Rules:
 
@@ -985,8 +1020,26 @@ RelayTicketV1 {
 }
 ```
 
-The relay signs the unsigned prefix. The endpoint then signs the prefix and the
-relay signature. The ticket ID is BLAKE2b-256 of the complete canonical ticket.
+The relay signs:
+
+```text
+BLAKE2b-256(
+    "HNSR-RELAY-TICKET-V1\0"
+    || all unsigned canonical RelayTicketV1 fields
+)
+```
+
+The endpoint then signs:
+
+```text
+BLAKE2b-256(
+    "HNSR-RELAY-CONFIRM-V1\0"
+    || all unsigned canonical RelayTicketV1 fields
+    || relay_signature
+)
+```
+
+The ticket ID is BLAKE2b-256 of the complete canonical ticket.
 
 Ticket requirements:
 
@@ -1021,13 +1074,67 @@ The endpoint treats the reservation as active only after a matching
 
 ### Renewal and withdrawal
 
-`RENEW` follows the same offer-and-confirm process and issues a fresh
-reservation ID and ticket.
+`RENEW` contains:
+
+```text
+RenewV1 {
+    previous_reservation_id:u8[16]
+    request:                ReserveV1
+}
+```
+
+The embedded request signature uses this digest instead of the `RESERVE`
+digest:
+
+```text
+BLAKE2b-256(
+    "HNSR-RENEW-V1\0"
+    || network_magic_u32le
+    || relay_key
+    || context_id_u64le
+    || previous_reservation_id
+    || all unsigned canonical ReserveV1 fields
+)
+```
+
+The relay MUST require the previous reservation to be active, owned by the
+same authenticated outer peer, and bound to the same endpoint key. Renewal
+then follows the same `OFFER` / `CONFIRM` / `CONFIRMED` process and issues a
+fresh reservation ID and ticket. The previous ticket remains usable until the
+new confirmation succeeds. After confirmation, the relay rejects new `OPEN`
+requests for the previous ticket; existing circuits MAY finish or be closed by
+local policy.
+
+`WITHDRAW` contains:
+
+```text
+WithdrawV1 {
+    reservation_id:          u8[16]
+    ticket_id:               u8[32]
+    endpoint_signature_length:u8
+    endpoint_signature:      u8[endpoint_signature_length]
+}
+```
+
+The endpoint signature digest is:
+
+```text
+BLAKE2b-256(
+    "HNSR-WITHDRAW-V1\0"
+    || network_magic_u32le
+    || relay_key
+    || context_id_u64le
+    || reservation_id
+    || ticket_id
+)
+```
 
 `WITHDRAW` is signed by the endpoint and immediately invalidates the local
-reservation. Version 1 defines no global withdrawal broadcast; remote records
-expire quickly and a requester receiving a stale ticket gets an `EXPIRED` or
-`ENDPOINT_GONE` error from the relay.
+reservation and its circuits. The relay replies with `ConfirmedV1` containing
+the matching reservation and ticket IDs and `expires_at = 0`. Version 1 defines
+no global withdrawal broadcast; remote records expire quickly and a requester
+receiving a stale ticket gets an `EXPIRED` or `ENDPOINT_GONE` error from the
+relay.
 
 ## Publishing a route
 
@@ -1806,45 +1913,59 @@ A bounded `hsd` proof of concept is available at:
 - draft implementation PR:
   [handshake-org/hsd#960](https://github.com/handshake-org/hsd/pull/960);
 - exact implementation commit:
-  [`5c96cda1b61bbdae4008946e93d9362dd8f6eef5`](https://github.com/denuoweb/hsd/tree/5c96cda1b61bbdae4008946e93d9362dd8f6eef5);
+  [`2fc40f1c61ff16a2f39d9514cd950d1560430ced`](https://github.com/denuoweb/hsd/tree/2fc40f1c61ff16a2f39d9514cd950d1560430ced);
 - branch documentation: `docs/experimental-hnsr.md`; and
-- reproducible runner: `scripts/run-hnsr-regtest-trial.js`.
+- reproducible runner: `scripts/run-hnsr-regtest-trial.js`; and
+- checked-in evidence: `docs/hnsr-regtest-phase1.json`.
 
-The reference branch implements the smallest coherent unnamed-node slice of
+The reference branch implements the complete unnamed-node Phase 1 slice of
 this HIP:
 
 - the version-1 envelope and private regtest capability advertisement;
-- `RESERVE`, `OFFER`, `CONFIRM`, and `CONFIRMED`;
+- iterative `FINDNODE` / `NODES` discovery with XOR ordering, parallelism of
+  three, a 32-query ceiling, authenticated contacts, and dialing of discovered
+  Handshake peers;
+- publisher-driven route replication with an eight-copy default and a
+  three-store quorum;
+- deterministic bounded `SAMPLEROUTES`;
+- `RESERVE`, `OFFER`, `CONFIRM`, `CONFIRMED`, `RENEW`, and signed `WITHDRAW`;
 - mutually signed relay tickets using strict-DER, low-S secp256k1 signatures;
 - self-authorized unnamed endpoint delegations and route records;
-- bounded, expiring, sequence-aware exact-key route storage;
+- bounded, expiring, sequence-aware route storage with global, per-key, and
+  per-publishing-peer limits;
 - `PUTROUTE`, `PUTRESULT`, `GETROUTE`, and `ROUTES`;
+- multi-relay records, higher-sequence republishing, and sequential failover;
 - `OPEN`, `INCOMING`, `ACCEPT`, and `OPENED`;
 - opaque `DATA`, directional `WINDOW`, and `CLOSE`;
-- circuit-count, byte, frame, and directional-credit limits;
+- circuit-count, byte, frame, directional-credit, and queue limits;
+- yielding relay scheduling, bounded control admission, and observable
+  saturation counters;
 - immediate local reservation invalidation on endpoint disconnect; and
-- a virtual stream carrying a complete end-to-end inner Brontide session.
+- ordinary inbound and outbound `hsd` `Peer` objects carrying a complete
+  end-to-end inner Brontide and Handshake session.
 
-The branch deliberately does **not** yet implement:
+The remaining work is separated by milestone rather than treated as one
+undifferentiated conformance gap:
 
-- iterative `FINDNODE` / `NODES` XOR routing;
-- eight-node route replication or diversity selection;
-- `SAMPLEROUTES`, `RENEW`, or `WITHDRAW` behavior;
-- named HNS authority, root-key TXT parsing, service authorizations, or
-  `HNS_WEB_V1`;
-- persistent route storage or routing buckets;
-- multi-relay selection, republishing, failover, or scoring;
-- public-network admission, netgroup, per-prefix, or abuse controls;
-- RPC, wallet, SPV, Android, hardware-signing, or browser-origin integration;
-  or
-- the production scheduler, telemetry, and load testing required by later
-  deployment phases.
+- **Phase 1B, named services:** HNS authority lookup, canonical root-key TXT
+  parsing, service authorizations, named delegations and route keys,
+  `HNS_WEB_V1`, HTTP, and origin behavior;
+- **Phase 2, bounded testnet hardening:** persistent XOR buckets, optional
+  durable route storage, eight-replica churn tests over larger topologies,
+  routability/per-prefix/netgroup policy, peer-dial budgets, republish and
+  failover timers, restart recovery, production scheduler integration, and
+  telemetry;
+- **Phase 3, clients:** RPC, address-manager, wallet, SPV, Android lifecycle,
+  hardware-backed signing, and browser integration; and
+- **public-network readiness:** assigned values, privacy review, production
+  abuse controls, reputation or payment policy, deployment gates, and
+  sustained public-network measurements.
 
-Direct storage at one rendezvous FullNode therefore demonstrates authenticated
-record publication and retrieval, not Kademlia conformance or data
-availability. Likewise, an inner `version` / `verack` and ping/pong exchange
-demonstrates an authenticated virtual peer session, not complete block,
-transaction, proof, or adversarial peer equivalence.
+The regtest routing table is a bounded live/recently-connected contact set. It
+exercises iterative XOR routing but is not the persistent bucket implementation
+required for a public network. The default publisher targets eight replicas;
+the checked-in four-rendezvous topology deliberately proves four stored copies
+and recovery with three survivors, not an eight-copy conformance claim.
 
 ### Reproduction
 
@@ -1855,84 +1976,105 @@ npm ci
 NODE_BACKEND=js npm run test-file -- \
   test/hnsr-test.js test/brontide-test.js test/net-test.js
 NODE_BACKEND=js node scripts/run-hnsr-regtest-trial.js \
-  ../artifacts/hnsr-regtest-trial.json
+  docs/hnsr-regtest-phase1.json
 ```
 
 `NODE_BACKEND=js` selects bcrypto's portable JavaScript backend and is not a
 wire-protocol requirement.
 
-The focused suites report 61 passing tests. They cover the envelope,
+The focused suites report 65 passing tests. They cover the envelope,
 truncation, reserved flags, zero context IDs, unknown versions and opcodes,
-reservation signature binding, ticket and route round trips, strict low-S
-rejection, route-key substitution, sequence replacement, expiration, role
+reservation and renewal signature binding, ticket and route round trips,
+strict low-S rejection, route-key substitution, sequence replacement,
+expiration, authenticated rendezvous contact encoding and XOR ordering,
+deterministic sampling, storage quotas, circuit backpressure, role
 advertisement, the regtest gate, Brontide, and the existing network packet
 suite.
 
-The successful 2026-07-21 trial creates four actual `hsd` FullNodes with
+The successful 2026-07-21 trial creates eight actual `hsd` FullNodes with
 independent prefixes and identity keys:
 
 ```text
-Endpoint (no listener) == outer Brontide ==> Relay
-Endpoint (no listener) == outer Brontide ==> Rendezvous
-Requester              == outer Brontide ==> Relay
-Requester              == outer Brontide ==> Rendezvous
+Endpoint (no listener) ==> Relay A, Relay B, Rendezvous 0
+Requester              ==> Rendezvous 0
+Rendezvous 0           ==> Rendezvous 1 ==> Rendezvous 2 ==> Rendezvous 3
+
+Requester == inner HNS peer ==> surviving relay ==> Endpoint
 ```
 
 It verifies:
 
-1. a mined regtest block propagates to height 1 on all four nodes;
-2. relay and endpoint ticket signatures validate;
-3. an authenticated unnamed route is stored and retrieved by its exact key;
-4. `HNS_NODE_V1` opens only to the live connection bound to the reservation;
-5. requester and endpoint complete a second end-to-end Brontide handshake;
-6. ordinary Handshake `version`, `verack`, `ping`, and `pong` packets cross the
-   inner session;
-7. both inner static peer identities match the expected requester and
-   endpoint keys;
-8. the relay forwards encrypted `DATA` while the plaintext ping nonce is absent
-   from every relay-visible payload; and
-9. after endpoint disconnect, the still-cached route remains retrievable but
-   its locally invalidated ticket is rejected.
+1. iterative discovery reaches all four rendezvous nodes from one bootstrap;
+2. two relay reservations are stored at all four rendezvous nodes;
+3. `SAMPLEROUTES` discovers the unnamed endpoint;
+4. both tickets renew, a higher route sequence is replicated, and both old
+   reservations withdraw;
+5. 72 concurrent lookups produce 64 accepted and 8 rate-limited requests;
+6. lookup succeeds from three surviving replicas after one rendezvous stops;
+7. opening falls through from stopped Relay A to Relay B;
+8. requester and endpoint create ordinary `hsd` `Peer` objects and mutually
+   authenticate their inner static keys;
+9. 1,000 ordinary Handshake pings saturate the circuit while a control
+   reservation completes;
+10. a mined block raises only endpoint and requester to height 1 while the two
+    relays and four rendezvous chains remain at height 0;
+11. the relay queue exceeds one scheduler burst, remains below 65,536 bytes,
+    drains over multiple yields, and records zero drops; and
+12. endpoint disconnect removes its live reservation while the stale cached
+    route remains retrievable and its ticket is rejected.
 
-The runner writes fresh machine-readable evidence on every invocation,
-including identities, route key, ticket ID, circuit ID, opcode counts, byte
-counts, and a relay-transcript hash. Randomized DER signature lengths and fresh
-cryptographic values mean exact artifact bytes are intentionally not stable.
+The checked-in evidence records these results, opcode counts, byte and queue
+counters, block convergence, and a hash of all relay-visible opaque `DATA`
+frames. Fresh identities, signatures, route values, and block hashes make exact
+artifact bytes intentionally unstable between successful runs.
 
 ## Deployment
 
-### Phase 1: regtest
+### Phase 1A: unnamed-node regtest
 
 - one endpoint;
 - two relays;
 - four rendezvous nodes;
 - one requester;
 - unnamed node route;
-- named web route;
 - inner Brontide;
 - full node peer traffic;
-- HTTP request and response;
+- route renewal and withdrawal;
+- rendezvous and relay failure;
 - forced endpoint disconnection;
 - stale route handling;
 - strict load and scheduling tests.
 
-**Reference status (2026-07-21): partial.** The implemented unnamed-node slice
-covers one endpoint, one relay, one rendezvous node, one requester, authenticated
-outer and inner Brontide, ordinary inner Handshake packets, endpoint
-disconnection, and stale-route rejection. The second relay, four-node
-rendezvous replication, iterative XOR lookup, named web route, HTTP path,
-strict load tier, and production scheduler remain required before Phase 1 is
-complete.
+**Reference status (2026-07-21): complete for the bounded unnamed-node
+experiment.** The implementation and checked-in evidence cover every item in
+this list. Its yielding PoC data scheduler and admission limits are sufficient
+for the regtest saturation experiment, but do not replace the production
+core-traffic scheduler and operational controls required by Phase 2.
+
+### Phase 1B: named-service regtest
+
+- authenticated HNS root-key discovery;
+- named service authorization and delegation;
+- named web route;
+- `HNS_WEB_V1` inner Brontide;
+- HTTP request and response;
+- authority and browser-origin enforcement;
+- named endpoint failover; and
+- web-specific limits and adversarial tests.
+
+**Reference status (2026-07-21): not implemented.** Phase 1B is independent of
+reviewing the Phase 1A full-node transport, but is required before claiming the
+complete named-service surface in this HIP.
 
 ### Phase 2: testnet
 
 - several independent operators;
-- iterative XOR routing;
-- route replication and failure;
+- persistent XOR buckets and larger-topology route churn;
+- eight-copy replication and diversity under partial failure;
 - Android network switching;
 - node and web relay limits;
 - DDoS simulation;
-- block propagation measurements under relay saturation;
+- production-priority block propagation measurements under relay saturation;
 - route spam and Sybil tests.
 
 ### Phase 3: opt-in mainnet experiment
@@ -2231,4 +2373,4 @@ phone serves hnsr://denuoweb/p2p-site/
 8. Kademlia, Maymounkov and Mazières, 2002, for XOR-keyed routing concepts.
 9. Draft HIP, *Handshake P2P Transport for Oblivious DNS Relay*.
 10. `hsd` proof of concept, `handshake-org/hsd#960`, exact commit
-    `5c96cda1b61bbdae4008946e93d9362dd8f6eef5`.
+    `2fc40f1c61ff16a2f39d9514cd950d1560430ced`.

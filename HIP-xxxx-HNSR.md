@@ -949,6 +949,18 @@ Rules:
 - an older sequence for the same endpoint key is ignored;
 - route records are deleted no later than expiration.
 
+The endpoint signature digest is:
+
+```text
+BLAKE2b-256(
+    "HNSR-ROUTE-RECORD-V1\0"
+    || all preceding canonical RouteRecordV1 fields
+)
+```
+
+For unnamed routes, network binding is carried by the signed `route_key`,
+which is derived from `network_magic_u32le` and `endpoint_key`.
+
 ## Relay reservation
 
 The endpoint establishes an ordinary outbound Handshake connection to a peer
@@ -1055,9 +1067,19 @@ Ticket requirements:
 
 ### `OFFER`, `CONFIRM`, and `CONFIRMED`
 
-`OFFER` contains the unsigned ticket prefix and relay signature.
+`OFFER` contains a canonical `RelayTicketV1` with the unsigned ticket fields
+and relay signature populated, `endpoint_signature_length = 0`, and no endpoint
+signature bytes.
 
-`CONFIRM` contains the reservation ID and endpoint signature.
+`CONFIRM` contains:
+
+```text
+ConfirmV1 {
+    reservation_id:          u8[16]
+    endpoint_signature_length:u8
+    endpoint_signature:      u8[endpoint_signature_length]
+}
+```
 
 `CONFIRMED` contains:
 

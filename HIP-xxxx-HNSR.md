@@ -1935,13 +1935,13 @@ A bounded `hsd` proof of concept is available at:
 - draft implementation PR:
   [handshake-org/hsd#960](https://github.com/handshake-org/hsd/pull/960);
 - exact implementation commit:
-  [`2fc40f1c61ff16a2f39d9514cd950d1560430ced`](https://github.com/denuoweb/hsd/tree/2fc40f1c61ff16a2f39d9514cd950d1560430ced);
+  [`4c300aa7327e2246c0e17fb0df156340354d3e66`](https://github.com/denuoweb/hsd/tree/4c300aa7327e2246c0e17fb0df156340354d3e66);
 - branch documentation: `docs/experimental-hnsr.md`; and
 - reproducible runner: `scripts/run-hnsr-regtest-trial.js`; and
 - checked-in evidence: `docs/hnsr-regtest-phase1.json`.
 
-The reference branch implements the complete unnamed-node Phase 1 slice of
-this HIP:
+The reference branch implements the bounded Phase 1A unnamed-node and Phase 1B
+named-service slices of this HIP:
 
 - the version-1 envelope and private regtest capability advertisement;
 - iterative `FINDNODE` / `NODES` discovery with XOR ordering, parallelism of
@@ -1964,14 +1964,23 @@ this HIP:
   saturation counters;
 - immediate local reservation invalidation on endpoint disconnect; and
 - ordinary inbound and outbound `hsd` `Peer` objects carrying a complete
-  end-to-end inner Brontide and Handshake session.
+  end-to-end inner Brontide and Handshake session;
+- current validated, closed HNS name-state lookup and exact canonical
+  `hnsr1 k=<base32-key>` TXT parsing with ambiguity rejection;
+- root-signed `ServiceAuthorizationV1`, service-signed named endpoint
+  delegation, named route-key derivation, and requester-side validation of the
+  complete HNS-to-endpoint authority chain;
+- replicated named records for two independently keyed endpoints;
+- `HNS_WEB_V1` inner endpoint-authenticated Brontide with bounded HTTP/1.1
+  request and response framing;
+- Host, HNS authority, and service agreement, plus stable origin derivation
+  independent of relay, ticket, and endpoint rotation;
+- connection reuse up to the configured 16-request circuit limit; and
+- sequential named-endpoint failover after primary disconnection.
 
 The remaining work is separated by milestone rather than treated as one
 undifferentiated conformance gap:
 
-- **Phase 1B, named services:** HNS authority lookup, canonical root-key TXT
-  parsing, service authorizations, named delegations and route keys,
-  `HNS_WEB_V1`, HTTP, and origin behavior;
 - **Phase 2, bounded testnet hardening:** persistent XOR buckets, optional
   durable route storage, eight-replica churn tests over larger topologies,
   routability/per-prefix/netgroup policy, peer-dial budgets, republish and
@@ -2004,45 +2013,62 @@ NODE_BACKEND=js node scripts/run-hnsr-regtest-trial.js \
 `NODE_BACKEND=js` selects bcrypto's portable JavaScript backend and is not a
 wire-protocol requirement.
 
-The focused suites report 65 passing tests. They cover the envelope,
-truncation, reserved flags, zero context IDs, unknown versions and opcodes,
-reservation and renewal signature binding, ticket and route round trips,
+The focused suites report 71 passing tests, including 21 HNSR tests. They cover
+the envelope, truncation, reserved flags, zero context IDs, unknown versions
+and opcodes, reservation and renewal binding, ticket and route round trips,
 strict low-S rejection, route-key substitution, sequence replacement,
-expiration, authenticated rendezvous contact encoding and XOR ordering,
+expiration, canonical and ambiguous HNS root-key TXT records, named authority
+round trips and substitution failures, origin stability and separation,
+duplicate and oversized HTTP headers, transfer-coding rejection, pipelined
+framing, authenticated rendezvous contact encoding and XOR ordering,
 deterministic sampling, storage quotas, circuit backpressure, role
 advertisement, the regtest gate, Brontide, and the existing network packet
 suite.
 
-The successful 2026-07-21 trial creates eight actual `hsd` FullNodes with
+The successful 2026-07-21 trial creates nine actual `hsd` FullNodes with
 independent prefixes and identity keys:
 
 ```text
-Endpoint (no listener) ==> Relay A, Relay B, Rendezvous 0
-Requester              ==> Rendezvous 0
-Rendezvous 0           ==> Rendezvous 1 ==> Rendezvous 2 ==> Rendezvous 3
+Endpoint/fallback web (no listener) ==> Relay A, Relay B, Rendezvous 0
+Primary web endpoint (no listener)  ==> Relay A, Relay B, Rendezvous 0
+Requester                           ==> Rendezvous 0
+Rendezvous 0 ==> Rendezvous 1 ==> Rendezvous 2 ==> Rendezvous 3
 
 Requester == inner HNS peer ==> surviving relay ==> Endpoint
+Requester == inner HNS_WEB_V1 ==> relay ==> authenticated named endpoint
 ```
 
 It verifies:
 
-1. iterative discovery reaches all four rendezvous nodes from one bootstrap;
-2. two relay reservations are stored at all four rendezvous nodes;
-3. `SAMPLEROUTES` discovers the unnamed endpoint;
-4. both tickets renew, a higher route sequence is replicated, and both old
+1. a shared regtest chain auctions `phase1b` and authenticates its canonical
+   root key by HNS `UPDATE` at height 47;
+2. the root authorizes `p2p-site`, two endpoints publish named records, and
+   each publication reaches all four rendezvous nodes;
+3. the requester validates the full named authority chain and receives an HTTP
+   200 response over inner endpoint-authenticated Brontide;
+4. one inner circuit carries 16 ordered request/response exchanges and rejects
+   a seventeenth request at the configured limit;
+5. a mismatched web authority returns 421, the stable origin excludes relay and
+   endpoint identity, and relay-visible DATA excludes response plaintext;
+6. disconnecting the primary named endpoint causes the stale candidate to fail
+   before the authenticated fallback endpoint returns 200;
+7. iterative discovery reaches all four rendezvous nodes from one bootstrap;
+8. two relay reservations are stored at all four rendezvous nodes;
+9. `SAMPLEROUTES` discovers the unnamed endpoint;
+10. both tickets renew, a higher route sequence is replicated, and both old
    reservations withdraw;
-5. 72 concurrent lookups produce 64 accepted and 8 rate-limited requests;
-6. lookup succeeds from three surviving replicas after one rendezvous stops;
-7. opening falls through from stopped Relay A to Relay B;
-8. requester and endpoint create ordinary `hsd` `Peer` objects and mutually
+11. 72 concurrent lookups produce 64 accepted and 8 rate-limited requests;
+12. lookup succeeds from three surviving replicas after one rendezvous stops;
+13. opening falls through from stopped Relay A to Relay B;
+14. requester and endpoint create ordinary `hsd` `Peer` objects and mutually
    authenticate their inner static keys;
-9. 1,000 ordinary Handshake pings saturate the circuit while a control
+15. 1,000 ordinary Handshake pings saturate the circuit while a control
    reservation completes;
-10. a mined block raises only endpoint and requester to height 1 while the two
-    relays and four rendezvous chains remain at height 0;
-11. the relay queue exceeds one scheduler burst, remains below 65,536 bytes,
+16. a mined block raises only endpoint and requester from height 47 to 48 while
+    the relay and rendezvous control chains remain at height 47;
+17. the relay queue exceeds one scheduler burst, remains below 65,536 bytes,
     drains over multiple yields, and records zero drops; and
-12. endpoint disconnect removes its live reservation while the stale cached
+18. endpoint disconnect removes its live reservation while the stale cached
     route remains retrievable and its ticket is rejected.
 
 The checked-in evidence records these results, opcode counts, byte and queue
@@ -2084,9 +2110,13 @@ core-traffic scheduler and operational controls required by Phase 2.
 - named endpoint failover; and
 - web-specific limits and adversarial tests.
 
-**Reference status (2026-07-21): not implemented.** Phase 1B is independent of
-reviewing the Phase 1A full-node transport, but is required before claiming the
-complete named-service surface in this HIP.
+**Reference status (2026-07-21): complete for the bounded named-service
+experiment.** The implementation and checked-in evidence cover every item in
+this list at the HSD protocol layer. HTTP messages are deliberately buffered
+within the 16 KiB header and 1 MiB body limits; an unbounded streaming API is
+not claimed. HSD derives the authenticated origin tuple and enforces its
+authority inputs, but native browser isolation of cookies, storage,
+permissions, and service workers remains Phase 3 client work.
 
 ### Phase 2: testnet
 
@@ -2395,4 +2425,4 @@ phone serves hnsr://denuoweb/p2p-site/
 8. Kademlia, Maymounkov and Mazières, 2002, for XOR-keyed routing concepts.
 9. Draft HIP, *Handshake P2P Transport for Oblivious DNS Relay*.
 10. `hsd` proof of concept, `handshake-org/hsd#960`, exact commit
-    `2fc40f1c61ff16a2f39d9514cd950d1560430ced`.
+    `4c300aa7327e2246c0e17fb0df156340354d3e66`.

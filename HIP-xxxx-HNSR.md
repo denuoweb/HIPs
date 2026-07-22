@@ -401,7 +401,8 @@ Experimental implementations MUST use private assignments on controlled
 networks and MUST NOT advertise them as this standard on public mainnet before
 maintainer assignment.
 
-The accompanying regtest-only `hsd` proof of concept uses:
+The accompanying `hsd` proof of concept uses the following values on regtest
+and on explicitly acknowledged, operator-controlled testnet experiments:
 
 | Symbol | Private PoC value |
 | --- | ---: |
@@ -410,9 +411,11 @@ The accompanying regtest-only `hsd` proof of concept uses:
 | HNSR packet type | `0xf3` |
 
 These values are collision-prone implementation values, not requested
-assignments. The reference branch throws if an operator attempts to enable an
-HNSR role outside regtest. A production implementation MUST replace them with
-assigned values and MUST NOT infer conformance from these numbers.
+assignments. The reference branch rejects mainnet, requires an additional
+testnet acknowledgement, and requires publicly routable advertised hosts for
+testnet relay and rendezvous roles. A production implementation MUST replace
+the private values with assigned values and MUST NOT infer conformance from
+these numbers.
 
 ## Capability negotiation
 
@@ -1935,15 +1938,21 @@ A bounded `hsd` proof of concept is available at:
 - draft implementation PR:
   [handshake-org/hsd#960](https://github.com/handshake-org/hsd/pull/960);
 - exact implementation commit:
-  [`4c300aa7327e2246c0e17fb0df156340354d3e66`](https://github.com/denuoweb/hsd/tree/4c300aa7327e2246c0e17fb0df156340354d3e66);
+  [`2c26892df9fb437b1c84f39fc4ecfe329b1d4922`](https://github.com/denuoweb/hsd/tree/2c26892df9fb437b1c84f39fc4ecfe329b1d4922);
+- exact native Android diagnostic commit:
+  [`30137230e67f944861833ee5d6a7ac6783cf46d4`](https://github.com/Denuo-Web/hns-dane-browser/tree/30137230e67f944861833ee5d6a7ac6783cf46d4);
 - branch documentation: `docs/experimental-hnsr.md`; and
-- reproducible runner: `scripts/run-hnsr-regtest-trial.js`; and
-- checked-in evidence: `docs/hnsr-regtest-phase1.json`.
+- reproducible runners: `scripts/run-hnsr-regtest-trial.js` and
+  `scripts/run-hnsr-phase2-trial.js`; and
+- checked-in evidence: `docs/hnsr-regtest-phase1.json`,
+  `docs/hnsr-regtest-phase2.json`, and
+  `docs/hnsr-phase2-android.png`.
 
-The reference branch implements the bounded Phase 1A unnamed-node and Phase 1B
-named-service slices of this HIP:
+The reference branches implement the bounded Phase 1A unnamed-node and Phase
+1B named-service slices, plus the local engineering portion of Phase 2:
 
-- the version-1 envelope and private regtest capability advertisement;
+- the version-1 envelope and private regtest or acknowledged-testnet
+  capability advertisement;
 - iterative `FINDNODE` / `NODES` discovery with XOR ordering, parallelism of
   three, a 32-query ceiling, authenticated contacts, and dialing of discovered
   Handshake peers;
@@ -1976,27 +1985,41 @@ named-service slices of this HIP:
 - Host, HNS authority, and service agreement, plus stable origin derivation
   independent of relay, ticket, and endpoint rotation;
 - connection reuse up to the configured 16-request circuit limit; and
-- sequential named-endpoint failover after primary disconnection.
+- sequential named-endpoint failover after primary disconnection;
+- persistent 256-bucket XOR routing with `k = 16`, a 2,048-contact cap,
+  failure eviction, bounded discovery dials, public-address admission, and
+  netgroup diversity;
+- optional atomic persistence of contacts, routes, and endpoint sequences,
+  with restart recovery and bounded per-prefix state;
+- eight-copy route publication, scheduled refresh, immediate network-change
+  refresh, and scored relay selection;
+- per-prefix control budgets, signature-verification budgets, requester,
+  endpoint, IP, netgroup, profile, and global circuit limits;
+- separate bounded `HNS_NODE_V1` and `HNS_WEB_V1` relay budgets with 3:1 node
+  weighting and operational telemetry; and
+- an Android debug-derived build whose Rust/JNI client performs native
+  Handshake and HNSR discovery, sampling, exact lookup, and authorization-chain
+  verification after Android default-network changes.
 
 The remaining work is separated by milestone rather than treated as one
 undifferentiated conformance gap:
 
-- **Phase 2, bounded testnet hardening:** persistent XOR buckets, optional
-  durable route storage, eight-replica churn tests over larger topologies,
-  routability/per-prefix/netgroup policy, peer-dial budgets, republish and
-  failover timers, restart recovery, production scheduler integration, and
-  telemetry;
-- **Phase 3, clients:** RPC, address-manager, wallet, SPV, Android lifecycle,
-  hardware-backed signing, and browser integration; and
+- **Phase 2, external testnet operation:** run the checked-in topology across
+  several independently administered hosts and networks, exercise real address
+  and netgroup diversity, sustain churn and saturation over a soak period, and
+  review the resulting operator telemetry and scheduler behavior;
+- **Phase 3, clients:** RPC, address-manager, wallet, SPV, production Android
+  lifecycle and hardware-backed signing, and browser integration; and
 - **public-network readiness:** assigned values, privacy review, production
   abuse controls, reputation or payment policy, deployment gates, and
   sustained public-network measurements.
 
-The regtest routing table is a bounded live/recently-connected contact set. It
-exercises iterative XOR routing but is not the persistent bucket implementation
-required for a public network. The default publisher targets eight replicas;
-the checked-in four-rendezvous topology deliberately proves four stored copies
-and recovery with three survivors, not an eight-copy conformance claim.
+The Phase 1 topology deliberately remains a four-rendezvous regression. The
+Phase 2 topology separately proves persistent XOR buckets, eight initial
+stores, durable restart recovery, and five live stores after three rendezvous
+failures. Because all twelve keyed processes run on one workstation, that
+artifact is not evidence of independent operators or public-network
+conformance.
 
 ### Reproduction
 
@@ -2008,12 +2031,14 @@ NODE_BACKEND=js npm run test-file -- \
   test/hnsr-test.js test/brontide-test.js test/net-test.js
 NODE_BACKEND=js node scripts/run-hnsr-regtest-trial.js \
   docs/hnsr-regtest-phase1.json
+NODE_BACKEND=js node scripts/run-hnsr-phase2-trial.js \
+  docs/hnsr-regtest-phase2.json
 ```
 
 `NODE_BACKEND=js` selects bcrypto's portable JavaScript backend and is not a
 wire-protocol requirement.
 
-The focused suites report 71 passing tests, including 21 HNSR tests. They cover
+The focused suites report 77 passing tests, including 27 HNSR tests. They cover
 the envelope, truncation, reserved flags, zero context IDs, unknown versions
 and opcodes, reservation and renewal binding, ticket and route round trips,
 strict low-S rejection, route-key substitution, sequence replacement,
@@ -2021,9 +2046,10 @@ expiration, canonical and ambiguous HNS root-key TXT records, named authority
 round trips and substitution failures, origin stability and separation,
 duplicate and oversized HTTP headers, transfer-coding rejection, pipelined
 framing, authenticated rendezvous contact encoding and XOR ordering,
-deterministic sampling, storage quotas, circuit backpressure, role
-advertisement, the regtest gate, Brontide, and the existing network packet
-suite.
+deterministic sampling, persistent XOR bucket and netgroup bounds, per-prefix
+storage quotas, durable restart recovery, network-change republishing,
+profile-weighted relay scheduling, circuit backpressure, role advertisement,
+the regtest/testnet gates, Brontide, and the existing network packet suite.
 
 The successful 2026-07-21 trial creates nine actual `hsd` FullNodes with
 independent prefixes and identity keys:
@@ -2076,6 +2102,37 @@ counters, block convergence, and a hash of all relay-visible opaque `DATA`
 frames. Fresh identities, signatures, route values, and block hashes make exact
 artifact bytes intentionally unstable between successful runs.
 
+The successful Phase 2 trial creates twelve actual `hsd` FullNodes with
+independent identity keys and persistent prefixes: two relays, eight chained
+rendezvous nodes, one endpoint, and one requester. It verifies:
+
+1. iterative discovery of all eight rendezvous identities and eight initial
+   route stores;
+2. recovery of a persisted contact and route after restarting one rendezvous
+   process;
+3. five live stored copies and successful exact lookup after three rendezvous
+   processes stop;
+4. immediate higher-sequence republishing after a simulated network change;
+5. fallback from a stopped relay to the second authenticated ticket;
+6. rejection at the eight-circuit requester bound;
+7. mixed acceptance and rejection of 40 validly signed spam records at the
+   verification and storage budgets;
+8. 64 accepted and 96 rate-limited results during a 160-request lookup burst;
+9. a 1 MiB `HNS_WEB_V1` request saturating the web profile while an actual
+   block traverses an inner `HNS_NODE_V1` peer on the same relay; and
+10. a 49,325-byte peak relay queue, zero drops, and separate relay,
+    rendezvous, and endpoint telemetry snapshots.
+
+The companion `hnsrTest` APK was built from the cited Android commit and run on
+a physical Pixel 9 through an ADB-reversed connection to the held Phase 2
+fixture. Its Rust client completed ordinary Handshake `version` / `verack`,
+required the HNSR service bit, performed `FINDNODE`, `SAMPLEROUTES`, and exact
+`GETROUTE`, and verified the delegation, both relay tickets, record signature,
+route key, and network binding. Disabling and restoring Wi-Fi advanced the
+Android default-network generation and produced a third successful fresh
+native probe. This is lifecycle and protocol evidence for the dedicated test
+client; it is not a claim that browser navigation uses HNSR.
+
 ## Deployment
 
 ### Phase 1A: unnamed-node regtest
@@ -2096,8 +2153,8 @@ artifact bytes intentionally unstable between successful runs.
 **Reference status (2026-07-21): complete for the bounded unnamed-node
 experiment.** The implementation and checked-in evidence cover every item in
 this list. Its yielding PoC data scheduler and admission limits are sufficient
-for the regtest saturation experiment, but do not replace the production
-core-traffic scheduler and operational controls required by Phase 2.
+for the regtest saturation experiment; the larger profile-aware scheduler and
+telemetry exercise is recorded separately by the Phase 2 trial.
 
 ### Phase 1B: named-service regtest
 
@@ -2128,6 +2185,15 @@ permissions, and service workers remains Phase 3 client work.
 - DDoS simulation;
 - production-priority block propagation measurements under relay saturation;
 - route spam and Sybil tests.
+
+**Reference status (2026-07-21): complete for the bounded single-workstation
+engineering trial; external operator validation remains.** The implementation
+and checked-in evidence cover persistent routing, eight-copy churn, Android
+network switching, node/web budgets, DDoS admission, valid route spam, and
+block propagation under web saturation. Before this milestone can be called a
+testnet deployment, the same procedure must run across several independently
+administered machines and networks and complete a sustained soak with operator
+review.
 
 ### Phase 3: opt-in mainnet experiment
 
@@ -2425,4 +2491,6 @@ phone serves hnsr://denuoweb/p2p-site/
 8. Kademlia, Maymounkov and Mazières, 2002, for XOR-keyed routing concepts.
 9. Draft HIP, *Handshake P2P Transport for Oblivious DNS Relay*.
 10. `hsd` proof of concept, `handshake-org/hsd#960`, exact commit
-    `4c300aa7327e2246c0e17fb0df156340354d3e66`.
+    `2c26892df9fb437b1c84f39fc4ecfe329b1d4922`.
+11. Native Android HNSR diagnostic, exact commit
+    `30137230e67f944861833ee5d6a7ac6783cf46d4`.

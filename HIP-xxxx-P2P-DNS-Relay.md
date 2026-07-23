@@ -26,8 +26,8 @@ result, and DNS Authenticated Data (`AD`) bit are never trust anchors.
 
 This extension is opt-in, introduces no consensus changes, and creates no new
 public listener. It reuses Handshake's existing peer framing and version
-service negotiation with one service-bit assignment and two packet-type
-assignments.
+service negotiation. A future public protocol would need one service bit and
+two packet-type identifiers, but this draft does not request them.
 
 ## Motivation
 
@@ -129,8 +129,9 @@ the connection.
 
 ## Assignments
 
-The following permanent assignments are requested from Handshake protocol
-maintainers:
+No permanent assignments are requested by this draft. The following table
+documents the registry space a future public protocol would need after threat-
+model review, multi-operator testing, and a separate maintainer decision:
 
 | Symbol | Registry | Value |
 | --- | --- | ---: |
@@ -141,10 +142,9 @@ maintainers:
 Values are deliberately unassigned while this HIP is a draft. Prototype
 implementations use private experimental values on controlled networks. Those
 values are not protocol assignments and MUST NOT be advertised as this
-standard on a public network unless maintainers explicitly assign them.
-The placeholders are appropriate for initial HIP submission, but no
-implementation can claim public-network conformance until all three permanent
-assignments have been made and implemented.
+standard on a public network. A later standards-track revision may request
+permanent values only after the review and deployment gates above are met; no
+implementation can claim public-network conformance before then.
 
 ## Capability negotiation
 
@@ -664,10 +664,12 @@ resolution fallback appropriate to their security policy. Removing a legacy
 fallback requires measured relay diversity, availability, latency, and
 interoperability; this HIP does not mandate that product decision.
 
-Prototype implementations using private service or packet values MUST migrate
-to the permanent assignments before claiming conformance. A private prototype
-and the final protocol MUST NOT share a service advertisement unless their wire
-formats are identical and the permanent assignments have been made.
+Prototype implementations using private service or packet values MUST remain
+limited to controlled experiments and MUST NOT claim public-network
+conformance. If a later accepted revision receives permanent assignments,
+implementations MUST migrate to them; a private prototype and the final
+protocol MUST NOT share a service advertisement unless their wire formats are
+identical.
 
 ## Prototype implementations and interoperability evidence
 

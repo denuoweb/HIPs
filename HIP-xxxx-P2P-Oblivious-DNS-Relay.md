@@ -36,8 +36,9 @@ target roles are optional services performed by ordinary Handshake peers. A
 target may be reached directly or, when both implementations support the
 separate HNSR HIP, through an HNSR `HNS_NODE_V1` circuit. HNSR support is
 optional and does not change the ODoH message, validation, or trust model. The
-extension requires no consensus change and requests one Handshake service bit
-and one versioned P2P packet type.
+extension requires no consensus change. A future public protocol would need one
+Handshake service bit and one versioned P2P packet type, but this draft does
+not request them.
 
 ## Status and dependency
 
@@ -379,7 +380,10 @@ cannot be established from protocol data alone.
 
 ## Assignments
 
-This HIP requests:
+No permanent assignments are requested by this draft. The identifiers below
+document the registry space a future public protocol would need after threat-
+model review, multi-operator testing, base-relay validation, and a separate
+maintainer decision:
 
 | Symbol | Registry | Value |
 | --- | --- | ---: |
@@ -390,7 +394,8 @@ The base target role also requires `NODE_DNS_RELAY` from the base HIP.
 
 Prototype implementations MUST use private experimental assignments on
 controlled networks. They MUST NOT advertise those values as this standard on
-mainnet until maintainers assign permanent values.
+mainnet. A later standards-track revision may request permanent values only
+after the review and deployment gates above are met.
 
 The accompanying regtest-only `hsd` proof of concept uses:
 
@@ -2302,21 +2307,21 @@ conformance.
 - aggregate performance metrics;
 - block propagation measurements;
 - privacy correlation experiments;
-- no conformance claim before assignment.
+- no public-network conformance claim.
 
 This phase is an operator deployment gate, not unfinished reference code.
 
-### Phase 5: assigned mainnet deployment
+### Phase 5: post-review mainnet deployment
 
-- permanent service bit and packet type;
+- permanent service bit and packet type, requested only after prior gates pass;
 - published interoperability vectors;
 - at least two independent implementations;
 - audited HPKE library integration;
 - explicit operator configuration.
 
-This phase begins only after the Handshake community assigns permanent values
-and accepts the HIP. Draft governance status is intentionally not represented
-as an implementation gap.
+This phase begins only after the prior gates pass and the Handshake community
+accepts a later revision and assigns permanent values. Draft governance status
+is intentionally not represented as an implementation gap.
 
 ## Testing requirements
 

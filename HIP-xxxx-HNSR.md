@@ -191,7 +191,8 @@ The proposals intentionally share these properties:
 - no new public HTTP, DNS, SOCKS, or tunnel listener is required;
 - operator enablement is explicit;
 - consensus and block-propagation traffic has higher scheduling priority;
-- permanent service-bit and packet-type assignments remain `TBD` while draft.
+- permanent service-bit and packet-type assignments remain unrequested and
+  `TBD` while draft.
 
 Rendezvous records MUST NOT be encoded as DNS queries. They are rapidly
 changing P2P presence records, not authoritative DNS data. Likewise, the DNS
@@ -386,7 +387,9 @@ session, and validates all application data according to the selected profile.
 
 ## Protocol assignments
 
-The following permanent assignments are requested:
+No permanent assignments are requested by this draft. The identifiers below
+document the registry space a future public protocol would need after threat-
+model review, multi-operator testing, and a separate maintainer decision:
 
 | Symbol | Registry | Value |
 | --- | --- | ---: |
@@ -394,12 +397,13 @@ The following permanent assignments are requested:
 | `NODE_HNSR_RELAY` | `version.services` bit | TBD |
 | `HNSR` | P2P packet type | TBD |
 
-Only one global packet type is requested. The payload contains a versioned
+Only one global packet type would be needed. The payload contains a versioned
 internal opcode.
 
 Experimental implementations MUST use private assignments on controlled
-networks and MUST NOT advertise them as this standard on public mainnet before
-maintainer assignment.
+networks and MUST NOT advertise them as this standard on public mainnet. A
+later standards-track revision may request permanent values only after the
+review and deployment gates above are met.
 
 The accompanying `hsd` proof of concept uses the following values on regtest
 and on explicitly acknowledged, operator-controlled testnet experiments:
@@ -2197,16 +2201,16 @@ review.
 
 ### Phase 3: opt-in mainnet experiment
 
-- maintainer-approved experimental assignments;
+- maintainer-approved private experimental values;
 - conservative defaults;
 - node profile enabled before web profile;
 - aggregate resource telemetry;
 - explicit operator opt-in;
 - no conformance claim before permanent assignments.
 
-### Phase 4: assigned protocol
+### Phase 4: post-review assigned protocol
 
-- permanent service bits and packet type;
+- permanent service bits and packet type, requested only after prior gates pass;
 - interoperable implementations;
 - published test vectors;
 - fuzz corpora;

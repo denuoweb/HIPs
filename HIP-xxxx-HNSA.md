@@ -9,6 +9,8 @@ Authors: Jaron Rosenau <@denuoweb>
 Created: 2026-08-01
 Related: Handshake P2P Rendezvous and Authenticated Service Relay
          (draft HIP)
+         HNSA Profile for Handshake P2P Rendezvous
+         (draft HIP)
 ```
 
 ## Abstract
@@ -398,11 +400,11 @@ Rules:
 - `name_hash` MUST match the name containing the current `hsa1` record;
 - `authority_epoch` MUST equal the current `hsa1` epoch;
 - `service_name` MUST be canonical;
-- `profile_id` MUST be recognized by the relying client;
+- `profile_id` MUST be nonzero and recognized by the relying client;
 - `service_key` MUST be a valid compressed secp256k1 public key;
 - `flags` MUST contain only bits defined by the selected profile;
-- `serial` MUST increase when the root key replaces an authorization for the
-  same service identity;
+- `serial` MUST be nonzero and MUST increase when the root key replaces an
+  authorization for the same service identity;
 - `valid_until_height` MUST be greater than `valid_from_height`;
 - an authorization MUST be rejected outside that block-height interval;
 - `max_endpoint_lifetime` MUST be 300 through 604,800 seconds;
@@ -458,8 +460,8 @@ Rules:
 - `network_magic` MUST match the active Handshake network;
 - `authorization_id` MUST identify the validated service authorization;
 - `endpoint_key` MUST be a valid compressed secp256k1 public key;
-- `endpoint_sequence` MUST increase for replacement of the same logical
-  endpoint under a profile-defined endpoint identifier;
+- `endpoint_sequence` MUST be nonzero and MUST increase for replacement of the
+  same logical endpoint under a profile-defined endpoint identifier;
 - `issued_at` MUST be less than `expires_at`;
 - lifetime MUST NOT exceed the service authorization's
   `max_endpoint_lifetime`;
@@ -533,7 +535,7 @@ To validate an endpoint record for named service `S`, a client MUST:
 
 A failure at any step MUST fail closed for HNSA authorization. A client MUST NOT
 silently replace a failed HNSA chain with an endpoint learned from an
-unauthenticated directory, relay, DNS response, or legacy fallback.
+unauthenticated directory, relay, DNS response, or compatibility fallback.
 
 ## Replacement and freshness
 
@@ -623,8 +625,8 @@ or safe. HNSA authenticates control, not reputation.
 
 If the authority chain expires, is ambiguous, changes unexpectedly, or fails a
 signature check, the browser must stop before sending application data. Any
-legacy or conventional-web fallback must be separately identified and require
-explicit profile and user policy.
+conventional-web fallback must be separately identified and require explicit
+profile and user policy.
 
 ### Network permissions
 
@@ -651,16 +653,21 @@ HNSR
 Unnamed HNSR node rendezvous remains independent and does not require an HNS
 name or HNSA.
 
-The current HNSR draft uses an `hnsr1` root record and HNSR-specific service and
-endpoint signature domains. Adoption of this HIP would require a separate HNSR
-revision that either consumes `hsa1` authority directly or defines an explicit
-compatibility transition. This HIP does not silently change the existing HNSR
-draft or claim wire compatibility before that revision.
+The companion *HNSA Profile for Handshake P2P Rendezvous* draft defines that
+revision. New named HNSR routes use route-record version `2`, authority type
+`1`, the `hsa1` trust root, and the exact HNSA authorization and delegation
+objects defined here. The route key is stable across endpoint and relay
+rotation because it is derived from the HNSA service identity.
 
-## Backwards compatibility
+Unnamed `HNS_NODE_V1` routes retain route-record version `1`, authority type
+`0`, and endpoint-key self-authorization. No version-1 named route or `hnsr1`
+object is reinterpreted as HNSA. The two formats therefore fail closed rather
+than relying on an implicit conversion.
 
-The `hsa1` record is valid existing HNS `TXT` data. Legacy full nodes, miners,
-resolvers, wallets, and applications may ignore it.
+## Compatibility
+
+The `hsa1` record is valid existing HNS `TXT` data. Full nodes, miners,
+resolvers, wallets, and applications that do not implement HNSA may ignore it.
 
 HNSA-aware clients are optional consumers. Names without a valid `hsa1` record
 continue operating under existing Handshake and DNS rules.
@@ -757,8 +764,8 @@ record can reveal which HNS service they intend to use.
 
 ## Reference implementation plan
 
-The first implementation should extract the authority objects and validators
-from the HNSR research implementation into a transport-independent library.
+The first implementation should provide the authority objects and validators
+in a transport-independent library.
 
 Recommended deliverables are:
 
@@ -771,8 +778,8 @@ Recommended deliverables are:
 7. A mobile-browser diagnostic that displays the validated authority chain and
    preserves origin across direct and relayed endpoints.
 
-No `hsd` consensus change is required. HNSR integration, wallet ergonomics, and
-browser support remain separate implementation changes.
+No Handshake consensus change is required. HNSR integration, wallet ergonomics,
+and browser support remain separate implementation changes.
 
 ## Deployment gates
 
@@ -795,7 +802,7 @@ browser support remain separate implementation changes.
 - carry HNSA service authorization and endpoint delegation with named HNSR
   routes;
 - demonstrate direct and relayed endpoints under one stable service identity;
-- test route expiry, relay failover, stale authorization, and no legacy
+- test route expiry, relay failover, stale authorization, and no unauthenticated
   fallback contact.
 
 ### Stage 3: Independent clients and operators
@@ -908,7 +915,6 @@ The following items remain for Draft review and implementation evidence:
   addition to bounded lifetime and global epoch revocation;
 - whether a future version should support threshold or hardware-backed root
   keys;
-- exact transition from the HNSR draft's `hnsr1` record to `hsa1`;
 - whether direct web and HNSR should share one web profile or use separate
   profile IDs with explicit origin relationships;
 - default browser presentation for HNS-authorized service identity.
@@ -921,4 +927,4 @@ The following items remain for Draft review and implementation evidence:
 4. SEC 1, *Elliptic Curve Cryptography*.
 5. Handshake developer documentation, *Resource Records*.
 6. Draft HIP, *Handshake P2P Rendezvous and Authenticated Service Relay*.
-7. Handshake `hsd` authenticated name-proof and resource validation behavior.
+7. Handshake authenticated name-proof and resource validation behavior.

@@ -1,30 +1,32 @@
-# HIP-xxxx: Named Service Authority for Handshake
+# HIP-xxxx: Named Service Authority Profile for Handshake Resource Manifests
 
 ```text
-Number:  HIP-xxxx
-Title:   Named Service Authority for Handshake
-Type:    Standards Track
-Status:  Draft
-Authors: Jaron Rosenau <@denuoweb>
-Created: 2026-08-01
-Related: Handshake P2P Rendezvous and Authenticated Service Relay
-         (draft HIP)
-         HNSA Profile for Handshake P2P Rendezvous
-         (draft HIP)
+Number:   HIP-xxxx
+Title:    Named Service Authority Profile for Handshake Resource Manifests
+Type:     Standards Track
+Status:   Draft
+Authors:  Jaron Rosenau <@denuoweb>
+Created:  2026-08-01
+Requires: Handshake Resource Manifests (draft HIP)
+Related:  HIP-0002, Handshake P2P Rendezvous and Authenticated Service Relay
+          (draft HIP)
+          HRM/HNSA Profile for Handshake P2P Rendezvous
+          (draft HIP)
 ```
 
 ## Abstract
 
-This document specifies Handshake Named Service Authority (HNSA), an optional
-protocol that allows the owner of a Handshake name to authorize separate keys
-for named application services without transferring the name or exposing its
-wallet key to an online service.
+This document specifies Handshake Named Service Authority (HNSA), the first
+application-resource profile for Handshake Resource Manifests (HRM).
 
-A name opts in by publishing one service-authority root key and epoch in its
-existing HNS `TXT` resource data. The root key signs bounded service
-authorizations. A service key may then authorize short-lived endpoint keys used
-by a transport or discovery profile such as HNSR, direct QUIC, HTTPS, messaging,
-or another HNS-aware application.
+HNSA allows the owner of a Handshake name to create stable named application
+services and delegate each service to a separate operational key without
+transferring the name or exposing its wallet key to online software. The
+current authenticated HNS name selects an HRM commitment. The committed,
+controller-signed HRM contains HNSA named-service resources and HRM
+delegations to service keys. A service key may then authorize short-lived
+endpoint keys used by HNSR, HTTPS, QUIC, messaging, payment, or another
+separately specified application profile.
 
 The authority chain is:
 
@@ -32,453 +34,424 @@ The authority chain is:
 current authenticated HNS name state
         |
         v
-service-authority root key and epoch
+HRM hrm1 commitment
         |
         v
-root-signed named service authorization
+controller-signed current HRM envelope
+        |
+        v
+hns.named-service/v1 resource
+        |
+        v
+HRM delegation to the service key
         |
         v
 service-signed endpoint delegation
         |
         v
-profile-specific endpoint or route record
+profile-specific endpoint, route, or signed application record
 ```
 
-HNSA defines identity and delegation, not transport. It does not define relay
-routing, DNS resolution, HTTP framing, browser UI, IP-address allocation,
-routing policy, or a general registry for non-service resources. Those concerns
-remain in the service profile or protocol that consumes the authorization.
-
-Version 1 uses current Handshake resource records and requires no consensus
-change, hard fork, new namestate version, permanent P2P message assignment, or
-new public Internet number.
+HNSA does not define a second manifest format or a parallel on-chain authority
+record. In particular, this version defines no `hsa1` record and no
+root-signed `ServiceAuthorizationV1` object. The HRM envelope, resource, and
+delegation encodings are the sole durable authority format.
 
 ## Plain-language summary
 
 An HNS name is normally controlled by a wallet key that should remain private
-and mostly offline. A website, chat service, mobile endpoint, or hosting
-provider needs a different key that can be used by online software.
+and mostly offline. Application services need operational keys that can rotate,
+move between devices, or be delegated to users and providers.
 
-HNSA gives the name owner a standard way to say:
+HRM gives the name owner a signed, content-addressed manifest and a general
+delegation model. HNSA defines how one HRM resource means:
 
 ```text
-this root key may authorize services for my HNS name
-this service key operates my web service
-these endpoint keys may serve that service for a limited time
+this stable application service exists beneath my HNS name
+this service key currently operates it
+this endpoint key may serve it for a limited time
 ```
 
-A client retrieves those signed objects from any discovery mechanism and
-verifies the complete chain against current HNS name state. A relay, hosting
-provider, directory, or endpoint cannot substitute its own service key without
-an authorization from the HNS name.
+For example, a future payment profile may define the user-facing identifier
+`jaron@denuoweb` as the HNSA service tuple:
+
+```text
+HNS name      = denuoweb
+service name  = jaron
+profile       = payment profile
+```
+
+The current HRM for `denuoweb` may delegate that service to Jaron's key.
+Jaron can then publish profile-defined HNS, BTC, XMR, invoice, or dynamic
+payment endpoints without holding the `denuoweb` name wallet key. The payment
+syntax and payload are defined by that future payment profile, not by HNSA
+Core.
 
 ## User stories
 
 ### Mobile or home hosting
 
-As the owner of `alice/`, Alice authorizes a `web` service key and one or more
-endpoint keys for her phone, home server, and optional VPS. An HNS-aware browser
-can reach any currently available endpoint while treating them as the same
-named service.
+As the owner of `alice/`, Alice creates a `web` named-service resource and
+delegates it to a service key. That service key authorizes endpoint keys for her
+phone, home server, and optional VPS. An HNS-aware browser can reach any
+currently valid endpoint while treating them as one service.
 
 ### Provider delegation
 
-Alice authorizes a hosting provider to operate `web` without giving the provider
-her HNS wallet key or control of `alice/`. She can replace the provider by
-publishing a new service authorization under her service-authority root.
+Alice delegates the `web` service to a hosting provider without giving the
+provider her HNS wallet key, HRM controller key, or control of unrelated
+resources. She replaces the provider by publishing a greater HRM sequence with
+a replacement service delegation.
+
+### Application username
+
+A registry or community operating `example/` uses an accepted application
+profile in which `jaron@example` maps to service name `jaron`. The current
+HRM delegates that exact service/profile tuple to Jaron's key. Jaron controls
+its profile-specific endpoints but cannot modify `example/`, another
+username, or another profile.
+
+### External wallet destinations
+
+A payment profile authorizes a named service to return destinations for
+multiple currencies. HNSA proves which service key may speak for the named
+payment identity. The payment profile defines assets, networks, address
+formats, invoices, replacement rules, and whether destinations are static
+signed records or dynamic endpoint responses.
 
 ### Key rotation after compromise
 
-Alice replaces a compromised service key while keeping the HNS name and browser
-identity unchanged. Clients reject endpoint records that do not lead to a
-currently valid service authorization.
+Alice replaces a compromised service key in the complete current HRM snapshot.
+Clients reject endpoint delegations that bind the removed service delegation,
+even if an untrusted directory continues serving them.
 
 ### Multiple services under one name
 
-Alice authorizes `web`, `chat`, and `files` with independent keys, profiles, and
-lifetimes. Compromise or migration of one service does not require rotating the
-keys for every other service or transferring the HNS name.
+Alice creates `web`, `chat`, and `files` resources with independent
+application profile IDs and service keys. A profile may instead interpret a
+service name as a username or another application-local label. Compromise or
+migration of one service does not authorize another tuple.
 
 ### Stable browser identity
 
 A user opens an HNS service whose direct address, relay, or provider has
 changed. The browser preserves the same origin and permissions because identity
-is based on the HNS name, service name, and profile rather than the selected
-network path.
+is based on the HNS name, service name, and application profile rather than the
+selected network path.
 
-## Motivation
+## Goals
 
-Handshake authenticates root names and DNS resource data. It does not currently
-provide an implementation-independent authorization format for application
-services operated beneath those names.
+HNSA version 1 is intended to:
 
-Without a separate service-authority layer, an application tends to choose one
-of these designs:
+- be a strict HRM resource profile rather than a competing manifest system;
+- separate HNS name custody, HRM control, service operation, and endpoint
+  reachability;
+- give each named service a stable identity across key and transport rotation;
+- permit the HRM controller to delegate a service to a user, provider, or
+  device key;
+- reuse HRM current-snapshot, transfer, expiry, revocation, and parent-
+  delegation behavior;
+- keep rapidly changing endpoint and route records outside the HRM envelope;
+- allow application profiles to define usernames, payments, web, chat, files,
+  and future payloads without changing HRM Core; and
+- support deterministic independent implementations.
 
-- use the name wallet key directly in online service software;
-- invent a new TXT key format for every application;
-- trust the endpoint returned by a directory or relay;
-- equate an IP address or hosting account with service identity;
-- place provider-specific credentials in name data;
-- define a complete authorization chain inside each transport proposal.
+## Non-goals
 
-These approaches either expose durable name custody, duplicate security rules,
-or bind identity to infrastructure that changes more frequently than the HNS
-name.
+This document does not define:
 
-HNSA introduces two deliberate delegation boundaries:
+- HRM Core, its commitment, envelope, or generic delegation encoding;
+- a universal username syntax;
+- a payment, wallet-address, invoice, or currency schema;
+- endpoint discovery or storage;
+- HNSR routing, relay tickets, or circuits;
+- DNS, HTTP, TLS, QUIC, messaging, or payment wire behavior;
+- globally assigned IP prefixes, ASNs, ports, protocol numbers, or link-layer
+  identifiers; or
+- automatic browser, wallet, operating-system, or network permission.
 
-```text
-name custody                   service operation
-HNS wallet -> root key         root key -> service key
-
-service operation              endpoint reachability
-service key -> endpoint key    endpoint key -> route or transport record
-```
-
-The name wallet only needs to update HNS when the root key or authority epoch
-changes. The root key may remain offline and sign relatively long-lived service
-authorizations. Service keys and endpoint keys can rotate on shorter schedules
-without exposing the name wallet.
-
-## Scope
-
-This HIP defines:
-
-- a canonical HNS `TXT` record for the service-authority root key and epoch;
-- canonical service names;
-- the stable identity tuple for a named service;
-- `ServiceAuthorizationV1`;
-- `EndpointDelegationV1`;
-- signature domains and canonical encodings;
-- expiry, sequence, replacement, and emergency revocation behavior;
-- validation rules and implementation limits;
-- the interface between HNSA and service profiles;
-- browser-origin and permission requirements for profile specifications.
-
-This HIP does not define:
-
-- an endpoint discovery or storage network;
-- HNSR rendezvous, relay tickets, circuits, or transport frames;
-- DNS, HTTP, TLS, QUIC, WireGuard, or messaging wire behavior;
-- an application-specific endpoint record;
-- a generic Internet resource manifest;
-- IP prefixes, ASNs, RPKI, BGP, ports, protocol numbers, or EtherTypes;
-- automatic operating-system or network configuration;
-- allocation policy or economic rules for services;
-- unnamed Handshake peer authority.
+Those semantics belong to HRM Core, another HRM resource profile, or the
+application/transport profile consuming HNSA.
 
 ## Requirements language
 
 The key words **MUST**, **MUST NOT**, **REQUIRED**, **SHALL**, **SHALL NOT**,
 **SHOULD**, **SHOULD NOT**, **RECOMMENDED**, **NOT RECOMMENDED**, **MAY**, and
-**OPTIONAL** in this document are to be interpreted as described in BCP 14 when,
-and only when, they appear in all capitals.
+**OPTIONAL** in this document are to be interpreted as described in BCP 14
+when, and only when, they appear in all capitals.
 
 ## Terminology
 
-**HNS name owner**
-: The controller of the current Handshake name covenant output.
+**HRM subject**
+: The HNS name hash in the current verified HRM payload.
 
-**Root key**
-: The service-authority key committed in current authenticated HNS name data.
-  It signs service authorizations and should normally remain offline.
-
-**Authority epoch**
-: An integer in current HNS name data. Changing it invalidates all service
-  authorizations issued under a previous epoch, even if the root key is reused.
+**HRM controller**
+: The operational key declared by and signing the current HRM payload. For
+  HNS-local named services, it originates the resource and signs the HRM
+  delegation to the service controller.
 
 **Named service**
-: An application service identified by an HNS name hash, canonical service
-  name, and profile ID.
+: An HNS-local HRM resource identified by a Handshake network, HNS name hash,
+  canonical service name, and application profile ID.
 
-**Service key**
-: A profile-specific operational key authorized by the root key for exactly one
-  named service.
+**Application profile**
+: A separate specification assigning meaning to an application profile ID and
+  defining user-facing naming, service rights, endpoint records, capabilities,
+  constraints, discovery, transport, and application behavior.
+
+**Service controller**
+: The key in the current HRM service delegation. It may sign bounded endpoint
+  delegations for exactly one named service.
 
 **Endpoint key**
-: A short-lived or device-specific key authorized by a service key. A service
-  profile defines how the endpoint key authenticates its route or transport.
+: A short-lived or device-specific key authorized by the service controller.
+  An application or transport profile defines how it signs or authenticates
+  endpoint records and sessions.
 
-**Service profile**
-: A separate specification defining the meaning of a profile ID, endpoint
-  records, capabilities, constraints, discovery, transport, and browser
-  behavior.
+**Service resource ID**
+: The stable HRM resource ID calculated from the named-service identity.
 
-**Authorization ID**
-: The BLAKE2b-256 hash of a complete canonical service authorization, including
-  its root signature.
+**Service delegation ID**
+: The HRM delegation ID for the current delegation of a named service to its
+  service controller.
 
-**Delegation ID**
-: The BLAKE2b-256 hash of a complete canonical endpoint delegation, including
-  its service signature.
+## Dependency on HRM Core
 
-## Design principles
+A relying implementation MUST validate the complete current HRM before applying
+this profile. That validation includes:
 
-### The HNS name remains the root of identity
+1. authenticated current HNS namestate;
+2. current `hrm1` commitment selection;
+3. exact envelope-hash matching;
+4. deterministic-CBOR validation;
+5. subject, network, sequence, and validity checks;
+6. HRM controller signature verification;
+7. resource origin or parent-delegation verification; and
+8. current-snapshot and local finality policy.
 
-A client starts with current authenticated Handshake name state. A service
-authorization learned from a relay, web server, peer, QR code, cache, or other
-untrusted source has no authority unless it validates under the root key and
-epoch currently published by that name.
+HNSA MUST NOT duplicate, bypass, or weaken those checks.
 
-### Name custody is separate from service operation
+One HRM may contain HNSA resources alongside resources from unrelated profiles.
+Adding HNSA does not prevent the same manifest and delegation graph from
+supporting later routing, overlay, payment, identity, or other resource
+profiles.
 
-The name wallet key does not sign ordinary service or endpoint messages. An HNS
-update selects a service-authority root key; that key delegates online work to
-service keys.
+## Named-service identity
 
-### Service identity is independent of network path
-
-An IP address, relay, transport connection, hosting provider, or endpoint key is
-not the named service identity. Those details may change while the HNS name,
-service name, and profile remain stable.
-
-### Profiles define transport semantics
-
-HNSA verifies who may operate a named service. It does not decide how a client
-finds or reaches the endpoint. HNSR, direct web, messaging, and future profiles
-may carry the same authorization objects over different transports.
-
-### Authorization is bounded
-
-Root-key changes and epoch increments provide an on-chain emergency boundary.
-Service and endpoint authorizations also have finite validity periods so stale
-objects eventually stop working without a further HNS transaction.
-
-## Service identity
-
-A named service is identified by this tuple:
+A named service is identified by:
 
 ```text
 Handshake network magic
 HNS name hash
 canonical service name
-service profile ID
+application profile ID
 ```
 
-The tuple is stable across root-key rotation, service-key rotation, endpoint
-rotation, provider migration, and transport failover.
+This tuple is stable across HRM controller rotation, service-controller
+rotation, endpoint rotation, provider migration, and transport failover.
 
-Version 1 service names:
+Service names:
 
 - are 1 through 63 ASCII bytes;
 - contain only lowercase `a-z`, digits, and hyphen;
 - MUST NOT begin or end with a hyphen;
-- MUST NOT contain period, slash, underscore, whitespace, or percent escapes;
+- MUST NOT contain a period, slash, underscore, whitespace, `@`, or percent
+  escape; and
 - are compared byte-for-byte without locale processing.
 
-Examples include `web`, `chat`, `files`, `node`, and `p2p-site`.
+The service name is an application-local label beneath the HNS root. It is not
+a DNS registration and is not independently owned on chain. An application
+profile MAY map a user-facing local part such as `jaron@example` to canonical
+service name `jaron`, but it MUST define that mapping and its collision rules.
 
-The service name is an application namespace beneath the HNS root. It is not a
-second-level DNS registration and is not independently owned on chain.
+Application profile ID zero is invalid. Draft profiles MUST use an explicitly
+documented private experimental value until an assignment is accepted.
 
-## HNS root-key record
+## Canonical named-service identifier
 
-### Record form
+The `identifier` byte string of an `hns.named-service/v1` HRM resource is
+the deterministic-CBOR encoding of:
 
-A name opts into HNSA by publishing exactly one canonical `TXT` record:
+| Key | Name | Type | Required |
+| ---: | --- | --- | :---: |
+| `0` | `network_magic` | unsigned integer, at most `u32` | yes |
+| `1` | `name_hash` | 32-byte byte string | yes |
+| `2` | `service_name` | canonical text string | yes |
+| `3` | `application_profile_id` | unsigned integer, at most `u16` | yes |
 
-```text
-hsa1 k=<base32-compressed-secp256k1-public-key> e=<epoch>
-```
+No other key is permitted in version 1.
 
-Diagnostic Handshake resource JSON:
+The network and name hash MUST match the active network and HRM subject. The
+application profile ID MUST be nonzero and recognized by the relying
+implementation.
 
-```json
-{
-  "type": "TXT",
-  "txt": [
-    "hsa1 k=ak3m... e=4"
-  ]
-}
-```
-
-The abbreviated key above is illustrative and is not a test vector.
-
-Requirements:
-
-- the complete record is one printable ASCII character-string;
-- fields are separated by exactly one ASCII space;
-- fields appear in the order shown;
-- `hsa1` is lowercase and exact;
-- `k` is an unpadded lowercase base32 encoding of a valid compressed 33-byte
-  secp256k1 public key;
-- `e` is an unsigned 32-bit decimal integer without leading zeroes, except zero
-  is encoded as `0`;
-- unknown, missing, duplicated, or reordered fields make the record invalid;
-- more than one syntactically valid `hsa1` record is ambiguous and MUST fail
-  closed.
-
-The record uses existing version `0` Handshake resource data and may coexist
-with supported `NS`, `DS`, glue, synthesis, and unrelated `TXT` records.
-
-### Authentication
-
-An ordinary unauthenticated DNS response is insufficient. A relying client MUST
-authenticate the root-key record using one of:
-
-- locally validated Handshake full-node state;
-- a Handshake light-client name proof anchored in accepted chain headers; or
-- DNSSEC validation anchored in a locally accepted Handshake root trust path.
-
-### Update, transfer, and revocation
-
-An HNS `UPDATE` that changes or removes the `hsa1` record replaces or revokes the
-service-authority root after the client accepts the new safe name state.
-
-Incrementing the epoch invalidates every service authorization containing a
-lower epoch. This permits emergency revocation while retaining the same root
-key.
-
-A name transfer that leaves the resource data unchanged leaves the existing
-root key and epoch in effect until the new owner updates them. This preserves
-service continuity while giving the new owner the ability to replace or remove
-the authority record.
-
-## Cryptographic primitives
-
-Version 1 uses:
-
-- BLAKE2b-256;
-- compressed 33-byte secp256k1 public keys;
-- deterministic secp256k1 ECDSA signatures;
-- strict DER signature encoding;
-- low-S normalization;
-- four-byte little-endian Handshake network magic in every signature domain.
-
-A verifier MUST reject invalid public keys, noncanonical DER, high-S
-signatures, wrong network magic, unsupported versions, and signatures over any
-noncanonical encoding.
-
-All unsigned integer fields use little-endian encoding. Every variable-length
-field is preceded by the length shown in its structure. No field may contain
-trailing bytes or an alternative encoding.
-
-## Service authorization
-
-The root key authorizes one named service with:
+The service resource ID is:
 
 ```text
-ServiceAuthorizationV1 {
-    version:                u8
-    network_magic:          u32
-    name_hash:              u8[32]
-    authority_epoch:        u32
-    service_name_length:    u8
-    service_name:           u8[service_name_length]
-    profile_id:             u16
-    service_key:            u8[33]
-    flags:                  u16
-    serial:                 u64
-    valid_from_height:      u32
-    valid_until_height:     u32
-    max_endpoint_lifetime:  u32
-    root_signature_length:  u8
-    root_signature:         u8[root_signature_length]
-}
-```
-
-The root-signature digest is:
-
-```text
-BLAKE2b-256(
-    "HNS-SERVICE-AUTH-V1\0"
-    || network_magic_u32le
-    || all remaining unsigned canonical fields
+SHA-256(
+    ASCII("HNS-HRM-NAMED-SERVICE-ID-V1") || 0x00
+    || canonical_identifier
 )
 ```
 
-The `network_magic` field appears in the object and signature input exactly
-once. The phrase `remaining unsigned canonical fields` starts with `name_hash`
-and ends with `max_endpoint_lifetime`.
+Two canonical identifiers are equal only when all four fields are equal.
 
-Rules:
+## Named-service resource
 
-- `version` MUST equal `1`;
-- `network_magic` MUST match the active Handshake network;
-- `name_hash` MUST match the name containing the current `hsa1` record;
-- `authority_epoch` MUST equal the current `hsa1` epoch;
-- `service_name` MUST be canonical;
-- `profile_id` MUST be nonzero and recognized by the relying client;
-- `service_key` MUST be a valid compressed secp256k1 public key;
-- `flags` MUST contain only bits defined by the selected profile;
-- `serial` MUST be nonzero and MUST increase when the root key replaces an
-  authorization for the same service identity;
-- `valid_until_height` MUST be greater than `valid_from_height`;
-- an authorization MUST be rejected outside that block-height interval;
-- `max_endpoint_lifetime` MUST be 300 through 604,800 seconds;
-- the root signature MUST verify under the current HNSA root key;
-- unknown trailing data MUST be rejected.
-
-The profile MAY impose a shorter authorization span or endpoint lifetime.
-
-The authorization ID is:
+An HNSA service uses the HRM resource profile identifier:
 
 ```text
-authorization_id = BLAKE2b-256(
-    "HNS-SERVICE-AUTH-ID-V1\0"
-    || complete_canonical_service_authorization
+hns.named-service/v1
+```
+
+Its authority MUST be HNS-local origin unless a future profile explicitly
+defines a compatible parent-delegation mapping. Its validity interval MUST be
+contained by the HRM payload interval.
+
+The resource `attributes` map is:
+
+| Key | Name | Type | Required | Meaning |
+| ---: | --- | --- | :---: | --- |
+| `0` | `profile_flags` | unsigned integer, at most `u16` | yes | Application-profile flags |
+| `1` | `profile_constraints_hash` | 32-byte byte string | yes | Hash of detached profile constraints, or zero |
+| `2` | `presentation` | map | no | Non-authoritative profile-defined display data |
+
+The application profile defines allowed `profile_flags`, the detached
+constraints encoding and hash domain, and any non-authoritative presentation
+fields. Presentation data MUST NOT change the service identity or grant rights.
+
+A current HRM MUST contain at most one canonical service resource with a given
+service resource ID. Duplicate or conflicting entries are invalid.
+
+## Delegation to the service controller
+
+The HRM controller delegates operation of a named service using an ordinary HRM
+delegation object.
+
+This is a profile-defined operational delegation over the same resource, not a
+claim that a second HNS subject originated a child resource. HNSA therefore
+permits `child_subject` to equal the parent HRM subject and
+`child_resource_id` to equal `parent_resource_id`. The delegated right is
+consumed directly by HNSA endpoint validation; it does not require a separate
+child HRM. This same-subject, same-resource mapping is valid only for the exact
+rights and constraints below and MUST NOT be generalized to another HRM
+profile without that profile defining its own mapping.
+
+For version 1:
+
+- `parent_resource_id` MUST equal the service resource ID;
+- `child_profile` MUST equal `hns.named-service/v1`;
+- `child_resource_id` MUST equal the service resource ID and
+  `child_identifier` MUST equal the service resource's canonical `identifier`
+  byte string;
+- `child_subject` MUST equal the HRM subject;
+- `child_controller` MUST use HRM algorithm 1 and a valid compressed
+  secp256k1 service key;
+- `rights` MUST be the canonical two-element array
+  `["delegate-endpoint", "operate"]`;
+- `may_subdelegate` MUST be false;
+- the delegation interval MUST be contained by the resource and HRM payload
+  intervals; and
+- `constraints` MUST use the map below.
+
+The constraints map is:
+
+| Key | Name | Type | Required | Meaning |
+| ---: | --- | --- | :---: | --- |
+| `0` | `service_generation` | nonzero unsigned integer, at most `u64` | yes | Replacement and replay generation |
+| `1` | `max_endpoint_lifetime` | unsigned integer, at most `u32` | yes | Maximum seconds |
+| `2` | `allowed_endpoint_capabilities` | unsigned integer, at most `u32` | yes | Profile-defined bit mask |
+| `3` | `endpoint_constraints_hash` | 32-byte byte string | yes | Expected detached endpoint constraints, or zero |
+
+`max_endpoint_lifetime` MUST be 300 through 604,800 seconds. The application
+profile MAY impose a lower maximum.
+
+The service generation MUST increase whenever a service controller is replaced,
+withdrawn and later restored, or its authority is intentionally reset. An
+unrelated HRM change does not require incrementing it.
+
+Exactly one current delegation may contain `operate` for a service resource.
+More than one is ambiguous and MUST fail validation. Concurrent endpoint
+redundancy is expressed through several endpoint delegations beneath the one
+service controller.
+
+Let `service_delegation_body` be the deterministic-CBOR map containing the
+ordinary HRM delegation fields with integer keys `1` through `11`, omitting
+only key `0` (`delegation_id`). The service delegation ID is:
+
+```text
+SHA-256(
+    ASCII("HNS-HRM-NAMED-SERVICE-DELEGATION-ID-V1") || 0x00
+    || service_delegation_body
 )
 ```
 
-This includes the canonical root signature.
+That digest MUST be stored as field `0` of the delegation. A verifier MUST
+re-encode fields `1` through `11`, recompute the digest, and reject a mismatch.
+The ID therefore commits to the service key, generation, rights, constraints,
+subject, resource, and validity interval without a self-reference.
 
 ## Endpoint delegation
 
-A service key authorizes an endpoint key with:
+A current service controller may sign one or more short-lived endpoint
+delegations:
 
 ```text
 EndpointDelegationV1 {
-    version:                 u8
-    network_magic:           u32
-    authorization_id:        u8[32]
-    endpoint_key:            u8[33]
-    endpoint_sequence:       u64
-    issued_at:               u64
-    expires_at:              u64
-    capabilities:            u32
-    constraints_hash:        u8[32]
-    service_signature_length:u8
-    service_signature:       u8[service_signature_length]
+    version:                       u8
+    network_magic:                 u32
+    service_resource_id:           u8[32]
+    service_delegation_id:         u8[32]
+    service_generation:            u64
+    endpoint_key:                  u8[33]
+    endpoint_sequence:             u64
+    issued_at:                     u64
+    expires_at:                    u64
+    capabilities:                  u32
+    constraints_hash:              u8[32]
+    service_signature_length:      u8
+    service_signature:             u8[service_signature_length]
 }
 ```
 
-The service-signature digest is:
+All integers in this object use little-endian encoding. Let
+`canonical_endpoint_body` be the exact fixed-width bytes from `version` through
+`constraints_hash`, excluding `service_signature_length` and
+`service_signature`. The service-signature digest is:
 
 ```text
 BLAKE2b-256(
-    "HNS-ENDPOINT-DELEGATION-V1\0"
-    || network_magic_u32le
-    || all remaining unsigned canonical fields
+    "HNS-HRM-HNSA-ENDPOINT-DELEGATION-V1\0"
+    || canonical_endpoint_body
 )
 ```
 
 Rules:
 
-- `version` MUST equal `1`;
+- `version` MUST equal 1;
 - `network_magic` MUST match the active Handshake network;
-- `authorization_id` MUST identify the validated service authorization;
+- both IDs and the generation MUST match the current verified HRM service
+  resource and delegation;
 - `endpoint_key` MUST be a valid compressed secp256k1 public key;
-- `endpoint_sequence` MUST be nonzero and MUST increase for replacement of the
-  same logical endpoint under a profile-defined endpoint identifier;
+- `endpoint_sequence` MUST be nonzero and increase for replacement of the
+  same profile-defined logical endpoint;
 - `issued_at` MUST be less than `expires_at`;
-- lifetime MUST NOT exceed the service authorization's
-  `max_endpoint_lifetime`;
-- the delegation MUST NOT remain valid after the service authorization's
-  block-height expiry;
-- `capabilities` MUST contain only bits defined by the selected profile;
-- `constraints_hash` is all zeroes when the profile defines no detached
-  constraints;
-- a nonzero constraints hash MUST commit to the exact canonical profile object;
-- the service signature MUST verify under the authorized service key;
-- unknown trailing data MUST be rejected.
+- the lifetime MUST NOT exceed `max_endpoint_lifetime`;
+- the interval MUST be contained by the current service resource and service
+  delegation intervals;
+- `capabilities` MUST contain no bit outside
+  `allowed_endpoint_capabilities`;
+- required capabilities are defined by the application profile;
+- `constraints_hash` MUST match the current service-delegation constraint;
+- the signature MUST use canonical strict-DER, low-S secp256k1 and verify under
+  the current service-controller key; and
+- malformed lengths, unsupported versions, and trailing bytes MUST be rejected.
 
-The delegation ID is:
+The endpoint-delegation ID is:
 
 ```text
-delegation_id = BLAKE2b-256(
-    "HNS-ENDPOINT-DELEGATION-ID-V1\0"
+SHA-256(
+    ASCII("HNS-HRM-HNSA-ENDPOINT-DELEGATION-ID-V1") || 0x00
     || complete_canonical_endpoint_delegation
 )
 ```
@@ -486,445 +459,455 @@ delegation_id = BLAKE2b-256(
 A service may authorize several endpoints concurrently for redundancy,
 geographic distribution, device migration, or transport choice.
 
-## Profile-specific endpoint records
+## Profile-specific records and application payloads
 
-HNSA stops at the endpoint key. A service profile defines the next object used
-for discovery or transport.
+HNSA stops after authorizing the endpoint key. An application or transport
+profile defines the next object.
 
-A profile-specific endpoint or route record MUST bind at least:
+A profile-specific record MUST bind at least:
 
 - active network magic;
-- service authorization ID;
-- endpoint delegation ID;
-- endpoint sequence;
-- endpoint or route expiry;
-- profile ID;
-- profile-specific locator, route, or session data.
+- service resource ID;
+- service delegation ID and generation;
+- endpoint-delegation ID and sequence;
+- application profile ID;
+- record sequence and validity interval;
+- profile-specific payload, locator, or route data; and
+- an endpoint-key signature over all preceding fields.
 
-It MUST be signed by the endpoint key and MUST NOT remain valid beyond the
-endpoint delegation.
+A profile may define:
 
-Examples include:
+- static signed application data stored with the HRM or in content-addressed
+  storage;
+- dynamic request/response behavior through an authorized endpoint;
+- direct and relayed endpoint records;
+- user-facing identifiers derived from the service name;
+- payment assets, networks, addresses, invoices, and expiry;
+- web origins and transport authentication;
+- messaging delivery keys; or
+- other bounded application semantics.
 
-- an HNSR signed route with one or more active relay tickets;
-- a direct QUIC endpoint with an authenticated transport key;
-- an HTTPS endpoint with profile-defined TLS or DANE binding;
-- a messaging endpoint with a delivery key and discovery locator.
-
-Those objects and their wire behavior are outside this HIP.
+A valid HNSA chain authorizes the service and endpoint keys. It does not make
+an otherwise malformed or semantically invalid application payload valid. The
+application profile remains responsible for payload validation.
 
 ## Validation algorithm
 
-To validate an endpoint record for named service `S`, a client MUST:
+To validate a profile-specific endpoint record for expected named service
+`S`, a client MUST:
 
-1. Obtain authenticated current HNS state for the root name under local chain
-   finality policy.
-2. Parse the `hsa1` record and reject missing or ambiguous authority.
-3. Parse the service authorization using bounded canonical decoding.
-4. Confirm network magic, HNS name hash, authority epoch, service name, profile,
-   flags, height interval, and endpoint-lifetime limit.
-5. Verify the root signature under the current `hsa1` key.
-6. Calculate and match the service authorization ID.
-7. Parse the endpoint delegation using bounded canonical decoding.
-8. Confirm its authorization ID, capabilities, constraints, sequence, time
-   interval, and profile rules.
-9. Verify the service signature under the authorized service key.
-10. Calculate and match the endpoint delegation ID.
-11. Validate the profile-specific endpoint record and its endpoint signature.
-12. Apply local browser or application policy before connecting.
+1. Derive the expected HNS name, canonical service name, and application
+   profile ID from trusted application input.
+2. Obtain and validate the complete current HRM under HRM Core.
+3. Construct the canonical HNSA identifier and service resource ID.
+4. Select exactly one current `hns.named-service/v1` resource with that ID.
+5. Validate its identifier, HNS-local authority, attributes, and interval.
+6. Select exactly one current HRM delegation with `operate` for that service.
+7. Validate its child resource, subject, controller, rights, generation,
+   endpoint limits, capabilities, constraints, and interval.
+8. Calculate and match the service delegation ID.
+9. Decode the endpoint delegation using bounded canonical parsing.
+10. Match its service resource, current service delegation, generation,
+    capabilities, constraints, and interval.
+11. Verify its service-controller signature.
+12. Calculate and match the endpoint-delegation ID.
+13. Validate the profile-specific record and endpoint signature.
+14. Apply application and local operational policy before using the result.
 
-A failure at any step MUST fail closed for HNSA authorization. A client MUST NOT
-silently replace a failed HNSA chain with an endpoint learned from an
-unauthenticated directory, relay, DNS response, or compatibility fallback.
+Untrusted objects MUST NOT select a different HNS name, service name, or
+application profile from the identity requested by the user or application.
 
-## Replacement and freshness
+Failure at any step fails HNSA authorization. A client MUST NOT silently
+replace a failed HRM/HNSA chain with a legacy `hsa1` object, an
+unauthenticated directory result, a plain DNS record, or a conventional endpoint
+under the same presentation identity.
 
-### Root authority
+## Replacement, revocation, and caching
 
-The current authenticated HNS `hsa1` record is authoritative. A key change or
-epoch increment invalidates older service authorizations once the new HNS state
-is accepted under local finality policy.
+### HRM and resource replacement
 
-### Service authorization replacement
+HRM Core's current complete snapshot is authoritative. A greater accepted HRM
+sequence replaces the prior resources and delegations. Removing the service
+resource revokes the service. Removing or replacing its delegation revokes that
+service controller.
 
-Service authorizations are finite. When several otherwise valid
-authorizations for the same service identity are available, a client MUST
-select the greatest `serial`. Equal serials with different canonical bytes are
-ambiguous and MUST fail closed.
+### Service-controller replacement
 
-A client cannot know about an unavailable higher serial merely from an older
-object. Profiles MUST therefore define discovery replication and maximum
-service-authorization lifetimes appropriate to their risk. Immediate global
-revocation uses an HNS root-key change or epoch increment.
+A replacement delegation MUST use a greater `service_generation`. Equal
+generations with different controller, rights, constraints, or canonical bytes
+are conflicting and invalid.
 
-### Endpoint delegation replacement
+An endpoint delegation binds both the service delegation ID and generation.
+Consequently an endpoint issued under a removed service controller cannot
+become current under its replacement.
 
-Endpoint delegations are short-lived and may overlap for failover. Profiles
-must define the logical endpoint identifier used when comparing
-`endpoint_sequence` and must bound replay through short route or endpoint
-record expiry.
+### Endpoint replacement
+
+Endpoint delegations are short-lived and may overlap. The application profile
+defines the logical endpoint identifier used when comparing
+`endpoint_sequence`.
 
 ### Caching
 
-A client MAY cache a validated chain only until the earliest of:
+A client may cache a validated chain only until the earliest of:
 
-- observation of changed HNS name data or a relevant chain reorganization;
-- service authorization height expiry;
-- endpoint delegation time expiry;
-- endpoint or route record expiry;
-- profile-specific cache limit.
+- observation of a changed HRM commitment or relevant HNS reorganization;
+- HRM payload expiry;
+- named-service resource expiry;
+- service delegation expiry;
+- endpoint-delegation expiry;
+- endpoint or application-record expiry; or
+- an application-profile cache limit.
 
-## Service profiles
+A current object being unavailable does not authorize fallback to an older
+manifest, delegation, endpoint, or application record.
 
-A service profile assigns a `profile_id` and MUST specify:
+## Application profiles
 
-1. User-visible purpose and at least one concrete user story.
-2. Meaning of the service authorization `flags`.
-3. Meaning of endpoint `capabilities` and detached constraints.
-4. Endpoint or route record encoding and signature domain.
-5. Discovery and replication behavior.
-6. Direct, relayed, and fallback connection policy.
-7. Maximum authorization, delegation, and endpoint-record lifetimes.
-8. Browser origin, cookies, storage, permissions, and mixed-content behavior
-   when the profile is web-facing.
-9. Resource, parser, and network limits.
-10. Positive and negative deterministic test vectors.
-11. Privacy, abuse, and denial-of-service considerations.
+An application profile using HNSA MUST specify:
 
-Profile IDs are not assigned by this HIP. A profile proposal SHOULD use private
-experimental values until its specification, implementations, and test vectors
-are accepted.
+1. A profile ID and versioning policy.
+2. User-facing purpose and concrete user stories.
+3. Mapping from user input to canonical HNS name and service name.
+4. Meaning of service flags, capabilities, and detached constraints.
+5. Service and endpoint replacement scope.
+6. Application-record encoding and signature domain.
+7. Discovery and replication behavior.
+8. Direct, relayed, and fallback policy.
+9. Maximum service, endpoint, and record lifetimes.
+10. Application payload validation and resource limits.
+11. Browser origin and permission behavior when applicable.
+12. Positive and negative deterministic test vectors.
+13. Privacy, abuse, and denial-of-service considerations.
+
+A payment profile must additionally define asset and network identifiers,
+address and invoice validation, static versus dynamic destinations, conflict
+handling, destination expiry, and transaction-intent binding.
+
+A username-bearing profile must define normalization, allowed characters,
+display form, collision handling, and whether the local part maps directly to
+the HNSA service name.
 
 ## Browser behavior
 
-This HIP does not require a URI scheme or browser interface. A web-facing
-profile must nevertheless preserve these properties.
-
 ### Stable origin
 
-Browser identity and storage MUST be scoped to at least:
+A web-facing profile MUST scope browser identity and storage to at least:
 
 ```text
 Handshake network
 HNS name hash
 canonical service name
-profile ID
+application profile ID
 ```
 
-They MUST NOT be scoped only to an IP address, relay, endpoint key, or hosting
-provider. Transport failover must not create a new origin or share storage with
-another named service.
+It MUST NOT scope origin only to an IP address, relay, endpoint key, retrieval
+URI, or hosting provider.
 
 ### Identity indication
 
-A browser may indicate that the endpoint is authorized by current HNS state.
-That indication must not claim that the operator, content, or service is honest
-or safe. HNSA authenticates control, not reputation.
+A browser may indicate that an endpoint is authorized by current HNS and HRM
+state. That indication must not claim that the operator, content, or service is
+honest or safe.
 
 ### Failure behavior
 
-If the authority chain expires, is ambiguous, changes unexpectedly, or fails a
-signature check, the browser must stop before sending application data. Any
-conventional-web fallback must be separately identified and require explicit
-profile and user policy.
+If the HRM or HNSA chain expires, becomes ambiguous, changes unexpectedly, or
+fails validation, the browser must stop using that authority. Conventional-web
+or legacy resolution is a separate identity unless an application profile
+explicitly defines and secures a transition.
 
-### Network permissions
+### Permissions
 
-A profile that requests VPN, overlay, local-network, device, or persistent
-background access must use an explicit browser or operating-system permission.
-An HNSA authorization alone does not grant those capabilities.
+HNSA authorization does not grant local-network, VPN, device, wallet,
+persistent-background, mining, or value-transfer permission. Those remain
+application and operating-system decisions.
+
+## Relationship to HIP-0002 and wallet TXT conventions
+
+HIP-0002 HTTP paths such as `/.well-known/wallets/<asset>` and prefixed HNS
+`TXT` wallet records are application-specific publication and discovery
+conventions. They are not HRM resources or HNSA delegations by themselves.
+
+A future payment profile MAY define an adapter that reads or emits either
+convention. It MUST specify authenticated namestate requirements, asset and
+network identifiers, address syntax, precedence, conflicts, expiry, and
+fallback behavior. An HTTP response synthesized from a `TXT` record does not
+gain a stronger authority chain merely because it is exposed through a
+well-known URL.
+
+Such an adapter MUST NOT silently merge a legacy domain-wide wallet record with
+a user-scoped HNSA identity such as `jaron@denuoweb`. The payment profile must
+define the exact mapping and present it as a separately selected compatibility
+mode unless the record is cryptographically bound to the expected HNSA
+resource and delegation.
+
+## Relationship to DNS delegation
+
+DNS and DNSSEC already support child names such as `jaron.denuoweb`, including
+NS delegation and TXT or HTTPS records. HNSA does not replace that mechanism.
+
+An application may display `jaron@denuoweb` while resolving
+`jaron.denuoweb`; that is a DNS-based application convention, not HNSA.
+
+HNSA instead permits an application profile to treat `jaron` as a service
+label within the HRM for `denuoweb` and delegate it directly to Jaron's
+service key. This does not create a DNS owner name or require Jaron to operate
+an authoritative nameserver. Profiles must not silently treat these two models
+as interchangeable.
 
 ## Relationship to HNSR
 
-The draft Handshake P2P Rendezvous and Authenticated Service Relay protocol
-contains a named-service authorization chain developed for HNSR routes. HNSA
-extracts that concept into a transport-independent layer.
+HNSA establishes the durable named-service resource and current service
+controller. HNSR may discover short-lived endpoints and relay opaque
+application streams.
 
-The relationship is:
+The companion HRM/HNSA HNSR profile defines route records that bind:
 
-```text
-HNSA
-    authorizes the named service key and endpoint key
+- the stable HNSA service resource ID;
+- the current HRM service delegation ID and generation;
+- an HNSA endpoint delegation; and
+- current HNSR relay tickets.
 
-HNSR
-    discovers a currently online endpoint and relays its traffic
-```
+An HNSR relay or rendezvous storage node is not required to retrieve or
+validate an HRM, but a client consuming an HRM/HNSA named route MUST validate
+the current chain. HRM need not be retrieved over HNSR, and unnamed HNSR node
+rendezvous does not require HRM or HNSA.
 
-Unnamed HNSR node rendezvous remains independent and does not require an HNS
-name or HNSA.
+## Compatibility and transition
 
-The companion *HNSA Profile for Handshake P2P Rendezvous* draft defines that
-revision. New named HNSR routes use route-record version `2`, authority type
-`1`, the `hsa1` trust root, and the exact HNSA authorization and delegation
-objects defined here. The route key is stable across endpoint and relay
-rotation because it is derived from the HNSA service identity.
+The `hrm1` commitment and deterministic-CBOR objects are ordinary current HNS
+TXT data plus off-chain content. Nodes, miners, resolvers, wallets, and
+applications that do not implement HRM or HNSA may ignore them.
 
-Unnamed `HNS_NODE_V1` routes retain route-record version `1`, authority type
-`0`, and endpoint-key self-authorization. No version-1 named route or `hnsr1`
-object is reinterpreted as HNSA. The two formats therefore fail closed rather
-than relying on an implicit conversion.
+The earlier experimental HNSA draft used:
 
-## Compatibility
+- an on-chain `hsa1` root-key record;
+- a fixed binary `ServiceAuthorizationV1`; and
+- an endpoint delegation bound to that authorization ID.
 
-The `hsa1` record is valid existing HNS `TXT` data. Full nodes, miners,
-resolvers, wallets, and applications that do not implement HNSA may ignore it.
+Those objects are not HRM objects and are superseded by this profile. They MUST
+NOT be accepted as this version, converted implicitly, used as fallback, or
+share application/browser identity with an HRM-backed HNSA service.
 
-HNSA-aware clients are optional consumers. Names without a valid `hsa1` record
-continue operating under existing Handshake and DNS rules.
-
-The proposal does not reinterpret `hnsr1`, unrelated TXT records, DNSSEC keys,
-TLS certificates, or wallet addresses.
+Because no permanent assignment or final HIP was issued for the earlier
+experiment, implementations SHOULD use a new experimental record or authority
+version for HRM-backed HNSA and retain the earlier parser only in explicitly
+selected compatibility tests.
 
 ## Security considerations
 
 ### Wallet-key exposure
 
-Implementations MUST NOT use the HNS name wallet key as a root, service, or
-endpoint key merely for convenience. The separation of custody and operation is
-a primary security property of this protocol.
+The HNS name wallet key selects the current HRM commitment through an ordinary
+name update. It MUST NOT be reused as the HRM controller, service controller, or
+endpoint key merely for convenience.
 
-### Root-key compromise
+### HRM-controller compromise
 
-A compromised root key can authorize malicious services until the HNS owner
-changes the key or increments the epoch. The root key should remain offline or
-in hardware-backed storage and should not sign endpoint or transport messages.
+A compromised HRM controller can sign malicious current manifests only while
+the HNS owner continues committing their hash. The HNS owner can replace the
+commitment. Parent-delegated or externally originated resources retain the
+additional HRM authority requirements.
 
-### Service-key compromise
+### Service-controller compromise
 
-A compromised service key can authorize endpoints only for its named service,
-profile, validity interval, flags, and endpoint-lifetime limit. It cannot modify
-the HNS name or authorize a different service identity.
+A compromised service controller can authorize endpoints only for its exact
+named-service resource, current delegation, generation, rights, constraints,
+and interval. It cannot modify the HRM or another service.
 
 ### Endpoint-key compromise
 
-A compromised endpoint key can impersonate one endpoint until its delegation
-and profile records expire. Endpoint lifetimes should reflect how securely the
-device can protect its key.
+A compromised endpoint key can impersonate its endpoint until the earliest
+applicable delegation or record expiry.
 
-### Replay and stale authorization
+### External wallet destinations
 
-Network magic, HNS state, epochs, serials, sequences, finite validity, and
-profile record expiry limit replay. Clients must validate current HNS state and
-must not accept an older object merely because a current object is unavailable.
+An HRM/HNSA chain proves which current named-service key authorized a payment
+record. It does not by itself prove control of an address on BTC, XMR, HNS, or
+another external network, nor that paying it is safe. A payment profile MUST
+define whether asset-specific control proof is required and MUST bind the
+asset, network, destination, memo or tag requirements, expiry, and transaction
+intent strongly enough to prevent cross-network and substitution errors.
+
+### Replay and rollback
+
+The current HNS commitment, HRM sequence, complete-snapshot semantics, service
+generation, delegation IDs, endpoint sequence, and bounded validity intervals
+limit replay. Implementations must preserve the rollback protections required
+by HRM Core and the consuming profile.
 
 ### Name transfer
 
-An unchanged HNSA root survives name transfer until the new owner updates the
-record. This supports service continuity, but participants must recognize that
-the new owner can revoke or replace the entire service authority.
+Name transfer follows HRM Core. An unchanged current commitment preserves its
+exact controller-signed manifest. The new name owner may withdraw or replace
+that commitment but cannot alter its signed contents.
 
-### Ambiguous authority
+### Untrusted retrieval
 
-Multiple valid `hsa1` records, equal service serials with different bytes,
-noncanonical names, unknown profiles, or conflicting required constraints must
-fail closed.
-
-### Untrusted discovery
-
-Discovery peers, relays, directories, and content hosts may omit, replay, or
-reorder authorization objects. They cannot forge the signature chain, but they
-can deny service or attempt to keep clients on older still-valid state.
-
-### Downgrade
-
-A failed HNSA connection must not silently become an unauthenticated connection
-to the same presentation name. Profiles must define explicit downgrade and
-fallback behavior.
+HRM hosts, directories, relays, and endpoints may omit, replay, reorder, or
+equivocate. They cannot forge a current hash/signature chain, but they can deny
+availability. Unavailability does not make an older object current.
 
 ### Parser and resource exhaustion
 
-Implementations MUST bound all lengths before allocation and signature work.
-Recommended initial maximums are:
+HRM Core bounds envelope and delegation processing. HNSA additionally requires:
 
 | Item | Maximum |
 | --- | ---: |
 | Service name | 63 bytes |
-| Signature | 80 bytes |
-| Service authorization | 256 bytes |
-| Endpoint delegation | 256 bytes |
-| Concurrent service candidates | 16 |
+| Endpoint-delegation signature | 80 bytes |
+| Endpoint delegation | 320 bytes |
+| Concurrent service candidates per identity | 2 before ambiguity rejection |
 | Concurrent endpoint candidates | 32 |
-| Detached constraint object | 64 KiB |
+| Detached constraints object | 64 KiB |
 
-A profile may impose smaller limits. A larger limit requires explicit
-justification and tests in that profile.
+Application profiles may impose smaller bounds. Larger bounds require explicit
+justification and tests.
 
 ## Privacy considerations
 
-Service names, service keys, provider changes, endpoint keys, capabilities, and
-validity intervals may reveal how a name owner's infrastructure is organized.
+A complete HRM may reveal service names, delegated users or providers,
+controller changes, validity intervals, and relationships between resources.
+Generic manifests make selective retrieval and disclosure an important future
+HRM concern.
 
-Profiles should avoid publishing personal device labels, private addresses,
-internal topology, or long-lived correlatable endpoint keys when they are not
-required for verification. Short-lived endpoint keys and privacy-preserving
-discovery may reduce correlation.
-
-Clients should consider that fetching a service authorization or endpoint
-record can reveal which HNS service they intend to use.
+Application profiles should avoid personal device labels, private addresses,
+internal topology, and long-lived correlatable endpoint keys when not required.
+A username or payment profile must document the public correlation created by
+its naming and discovery model.
 
 ## Reference implementation plan
 
-The first implementation should provide the authority objects and validators
-in a transport-independent library.
+Implementation should proceed in this dependency order:
 
-Recommended deliverables are:
+1. Deterministic HRM Core encoders, decoders, signatures, commitment selection,
+   storage retrieval, and current-state validation.
+2. The exact `hns.named-service/v1` resource and HRM service-delegation
+   validator.
+3. Endpoint-delegation encoders, signers, validators, and vectors bound to HRM
+   IDs and generations.
+4. At least one application profile.
+5. The HRM/HNSA HNSR adapter.
+6. Wallet tooling for creating, signing, publishing, replacing, and inspecting
+   HRMs.
+7. Mobile and browser consumers that preserve the exact verified identity.
 
-1. Shared canonical encoders and decoders for JavaScript and Rust.
-2. Root, service, and endpoint signing and validation APIs.
-3. Wallet support for creating and updating the `hsa1` record.
-4. A command-line inspection and verification tool.
-5. Deterministic positive and negative vectors.
-6. An HNSR named-service adapter using HNSA objects.
-7. A mobile-browser diagnostic that displays the validated authority chain and
-   preserves origin across direct and relayed endpoints.
-
-No Handshake consensus change is required. HNSR integration, wallet ergonomics,
-and browser support remain separate implementation changes.
+Existing `hsa1`-based Rust and JavaScript implementations conform to the
+superseded experiment, not this draft, until their authority source and object
+bindings are migrated to HRM.
 
 ## Deployment gates
 
-### Stage 0: Canonical vectors
+### Stage 0: HRM Core
 
-- finalize all binary encodings and signature domains;
-- verify byte-identical JavaScript and Rust implementations;
-- publish malformed, ambiguous, replayed, and cross-network negative vectors.
+- finalize HRM deterministic CBOR and signature vectors;
+- implement current HNS commitment selection and envelope validation;
+- test transfer, replacement, rollback, expiry, and unavailable retrieval.
 
-### Stage 1: Regtest authority chain
+### Stage 1: Named-service profile
 
-- publish `hsa1` in authenticated name state;
-- authorize multiple independent named services;
-- rotate service and endpoint keys;
-- increment the epoch and verify immediate invalidation;
-- transfer the name with and without changing the root record.
+- publish exact resource-ID and service-delegation vectors;
+- verify byte-identical Rust and JavaScript implementations;
+- test service creation, controller replacement, removal, generation rollback,
+  ambiguity, and profile mismatch.
 
-### Stage 2: HNSR integration
+### Stage 2: Endpoint authority
 
-- carry HNSA service authorization and endpoint delegation with named HNSR
-  routes;
-- demonstrate direct and relayed endpoints under one stable service identity;
-- test route expiry, relay failover, stale authorization, and no unauthenticated
-  fallback contact.
+- publish endpoint-delegation signature and ID vectors;
+- test concurrent endpoints, capability constraints, expiry, replacement, and
+  removed-controller rejection.
 
-### Stage 3: Independent clients and operators
+### Stage 3: Application and transport profiles
 
-- run multi-operator testnet trials;
-- validate the same objects in independent JavaScript and Rust clients;
-- measure authorization freshness, retrieval availability, mobile lifecycle,
-  and abuse limits;
-- complete browser-origin and permission review for any web profile.
+- implement separately reviewed web, chat, payment, or other profiles;
+- demonstrate profile-specific payload validation and identity mapping;
+- integrate direct and relayed transports without changing service identity.
 
-No permanent wire assignment or mainnet-default behavior is requested by this
-HIP.
+### Stage 4: Independent clients and operators
+
+- run multi-operator regtest and testnet trials;
+- measure retrieval, validation, storage, and denial-of-service behavior;
+- complete security and browser-origin review before permanent assignments.
 
 ## Test requirements
 
-Before this proposal can move beyond Draft, deterministic tests must cover:
+Deterministic positive and negative vectors MUST cover:
 
-- canonical `hsa1` parsing and ambiguity rejection;
-- valid and invalid root signatures;
-- wrong name hash, epoch, profile, network magic, and height interval;
-- valid service replacement and equal-serial conflict;
-- valid and invalid endpoint signatures;
-- endpoint lifetime beyond the service maximum;
-- invalid capabilities and detached constraint hashes;
-- root-key rotation and epoch-only revocation;
-- service-key and endpoint-key rotation;
-- name transfer with retained and replaced root records;
-- concurrent endpoints and failover;
-- expired and replayed endpoint records;
-- malformed lengths, DER signatures, public keys, and trailing bytes;
-- stable browser origin across endpoint, relay, and provider changes;
-- rejection without unauthenticated fallback.
+- every HRM Core requirement used by HNSA;
+- canonical named-service identifier and resource ID;
+- wrong network, subject, service name, and application profile;
+- invalid resource origin, flags, or constraints;
+- valid service delegation and controller signature through the HRM envelope;
+- missing, duplicate, or conflicting service delegations;
+- service generation replacement and rollback;
+- endpoint delegation encoding, signature, and ID;
+- wrong service resource, delegation ID, generation, key, capabilities, or
+  constraints;
+- endpoint expiry and sequence replacement;
+- manifest replacement, removal, transfer, and reorganization;
+- legacy `hsa1` and fixed service-authorization rejection;
+- application-profile identity and payload failures; and
+- no unauthenticated or cross-model fallback.
 
 ## Rationale
 
-### Why store a root key in HNS instead of every endpoint?
+### Why make HNSA an HRM profile?
 
-Endpoint state changes frequently and may exceed the 512-byte HNS resource-data
-limit. A root key creates a bounded delegation hierarchy while keeping name
-state small and durable.
+Named services need the same commitment, controller separation, complete
+snapshots, delegation, transfer, expiry, and revocation behavior as other
+resources. A second authority format would duplicate those rules and prevent
+services from participating in a larger resource graph.
 
-### Why not use the HNS wallet key directly?
+### Why keep endpoint delegations outside HRM?
 
-Wallet keys control valuable names and coins and should not be exposed to
-online service processes. A separate root key permits service authorization
-without weakening name custody.
+Service controllers may operate many mobile, residential, or relayed endpoints
+whose keys and locators change more frequently than an HNS update and complete
+manifest publication. The HRM delegates the durable service role; the service
+key signs bounded transient endpoint authority.
 
-### Why have both service and endpoint keys?
+### Why use a complete manifest snapshot?
 
-A service may run on several devices, providers, or relays. The service key
-represents the operator role, while short-lived endpoint keys limit the impact
-of one device compromise and allow independent rotation.
+It makes removal an explicit current-state revocation and lets one HNS
+commitment select the coherent set of resources and delegations. Endpoint
+presence remains separately short-lived.
 
-### Why include an on-chain epoch?
+### Why distinguish application profiles from HRM resource profiles?
 
-Service authorizations may be replicated through untrusted discovery systems.
-An epoch increment gives the HNS owner one current, authenticated mechanism for
-invalidating every authorization under an old epoch without relying on those
-systems to distribute a revocation list.
+`hns.named-service/v1` defines the common resource and controller chain.
+Application profiles define what `web`, `chat`, `jaron`, or another
+service label means and what records or sessions are valid. This permits shared
+authority without pretending that every application has identical semantics.
 
-### Why use block height for service authorization and time for endpoints?
+### Why not use DNS delegation alone?
 
-The service root is verified against Handshake chain state, so block height
-provides a consistent validity boundary. Endpoint records are short-lived
-network objects whose transports already depend on wall-clock expiry.
-
-### Why keep transport behavior out of this HIP?
-
-Rendezvous, direct web, messaging, and other transports have different routing,
-privacy, availability, and abuse models. Combining them with the authority core
-would make one proposal responsible for unrelated deployment risks.
-
-## Alternatives considered
-
-### Generic Internet resource manifests
-
-Not included. IP prefixes, ASNs, routing policy, link-layer identifiers, and
-other public resources have separate authority systems and no immediate role in
-the named-service chain defined here.
-
-### Application-specific TXT keys
-
-Not selected as the general model. A separate key record for every application
-duplicates rotation, transfer, expiry, and validation rules and consumes scarce
-HNS resource data.
-
-### One online key for all services
-
-Not selected. Independent service keys contain compromise and allow providers
-or devices to be changed without replacing unrelated services.
-
-### On-chain endpoint records
-
-Not selected. Mobile and relayed endpoints change too frequently for name
-transactions and may require multiple concurrent records.
-
-### A mandatory manifest server
-
-Not selected. Authorization objects are signed and can be carried by any
-profile-defined discovery system. Requiring one server would create a new
-availability and metadata dependency.
+DNS delegation already works for DNS child names and remains appropriate when
+that is the desired model. HNSA provides a manifest-native application
+delegation model for services that should not require a child DNS zone or bind
+identity to one DNS transport.
 
 ## Open questions
 
-The following items remain for Draft review and implementation evidence:
+The following remain for Draft review:
 
-- exact private profile-ID range for regtest and acknowledged testnet use;
-- whether service authorizations need a core maximum block-height span;
-- whether service-specific revocation needs an optional on-chain commitment in
-  addition to bounded lifetime and global epoch revocation;
-- whether a future version should support threshold or hardware-backed root
-  keys;
-- whether direct web and HNSR should share one web profile or use separate
-  profile IDs with explicit origin relationships;
-- default browser presentation for HNS-authorized service identity.
+- permanent registry and assignment policy for application profile IDs;
+- whether the service-controller delegation should permit explicitly bounded
+  concurrent controllers;
+- whether future threshold controllers should be added through HRM Core;
+- whether selective disclosure should use HIP-0016, an authenticated map, or
+  independent committed submanifests;
+- exact payment and username profile separation;
+- migration tooling for experimental `hsa1` records; and
+- whether direct Web and HNSR should share one application profile or use
+  distinct profile IDs with an explicit origin relationship.
 
 ## References
 
-1. RFC 2119, *Key words for use in RFCs to Indicate Requirement Levels*.
+1. RFC 2119, *Key words for use in RFCs*.
 2. RFC 8174, *Ambiguity of Uppercase vs Lowercase in RFC 2119 Key Words*.
-3. RFC 6979, *Deterministic Usage of the Digital Signature Algorithm*.
-4. SEC 1, *Elliptic Curve Cryptography*.
-5. Handshake developer documentation, *Resource Records*.
+3. RFC 8949, *Concise Binary Object Representation (CBOR)*.
+4. HIP-0002, *Well Known directory for wallets address*.
+5. Draft HIP, *Handshake Resource Manifests*.
 6. Draft HIP, *Handshake P2P Rendezvous and Authenticated Service Relay*.
-7. Handshake authenticated name-proof and resource validation behavior.
+7. Draft HIP, *HRM/HNSA Profile for Handshake P2P Rendezvous*.
+8. Handshake developer documentation, *Resource Records*.
